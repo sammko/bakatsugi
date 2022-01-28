@@ -1,9 +1,6 @@
 SECTIONS
 {
-  output :
-  {
-    *(.text)
-    *(.data)
-    *(.bss)
-  }
+  .text : { *(.text) }
+  .data : { *(.data) }
+  .bss  : { *(.bss)  }
 }
