@@ -32,5 +32,5 @@ section .bss
 self   resq 1
 dlopen resq 1
 flagv  resb 1
-p_ref  resb 16
+cookie resb 16
 path   resb 256

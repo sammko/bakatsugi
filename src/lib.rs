@@ -54,10 +54,10 @@ pub struct PayloadData {
 
 fn get_payload_data(self_vmaddr: u64) -> Result<PayloadData> {
     unsafe {
-        let p_ref = slice::from_raw_parts((self_vmaddr + PAYLOAD_OFFSET_P_REF) as *const u8, 16);
+        let cookie = slice::from_raw_parts((self_vmaddr + PAYLOAD_OFFSET_COOKIE) as *const u8, 16);
         let flagv = *((self_vmaddr + PAYLOAD_OFFSET_FLAGV) as *const u8);
         return Ok(PayloadData {
-            cookie: p_ref.try_into()?,
+            cookie: cookie.try_into()?,
             was_syscall: flagv > 0
         })
     }
