@@ -2,11 +2,12 @@ bits 64
 
 section .text
 
-entry:
-    jmp     flag
-r:
+entry_syscall:
+    jmp     setflag
 
-%if (r - entry) != 2
+entry_nonsyscall:
+
+%if (entry_nonsyscall - entry_syscall) != 2
 %error "guard is not 2B"
 %endif
 
@@ -18,9 +19,9 @@ r:
     call    [rel dlopen]
     int3
 
-flag:
+setflag:
     mov     byte [rel flagv], 1
-    jmp     r
+    jmp     entry_nonsyscall
 
 section .data
 
