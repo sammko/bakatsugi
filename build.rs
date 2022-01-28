@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     generate_payload_consts(&out_dir)?;
 
     cargo_emit::rerun_if_changed!("src/payload.asm");
-
+    cargo_emit::rerun_if_changed!("script.ld");
 
     Ok(())
 }
