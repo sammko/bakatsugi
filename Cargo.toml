@@ -22,4 +22,4 @@ crate-type = ["cdylib"]
 
 [[bin]]
 name = "injector"
-path = "src/main.rs"
+path = "src/injector.rs"
