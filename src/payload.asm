@@ -23,12 +23,10 @@ flag:
     jmp     r
 
 section .data
-align 1
 
 magic dq 0x68637450616b6142
 
 section .bss
-align 1
 
 self   resq 1
 dlopen resq 1
