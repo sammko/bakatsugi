@@ -2,11 +2,13 @@
 
 use std::{
     ffi::{c_void, OsStr, OsString},
-    fs, ops::Range, os::unix::prelude::OsStrExt,
+    fs,
+    ops::Range,
+    os::unix::prelude::OsStrExt,
 };
 
 use anyhow::{bail, Context, Result};
-use goblin::{Object, elf::Sym};
+use goblin::{elf::Sym, Object};
 use nix::{
     libc::{
         SYS_mmap, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_EVENT_STOP,
@@ -32,8 +34,12 @@ fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
         }
         if let Some(basename) = map.filename().and_then(|f| f.file_name()) {
             match basename.to_str() {
-                Some(s) => if re.is_match(s) { return Ok(map) }
-                None => continue
+                Some(s) => {
+                    if re.is_match(s) {
+                        return Ok(map);
+                    }
+                }
+                None => continue,
             }
         }
     }
@@ -79,14 +85,14 @@ fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Resul
             Some("dlopen") => sym_dlopen = Some(sym),
             Some("cookie") => sym_cookie = Some(sym),
             Some("path") => sym_path = Some(sym),
-            Some(_) | None => {},
+            Some(_) | None => {}
         }
     }
 
     fn r(sym: &Sym, size: usize) -> Range<usize> {
         Range {
             start: sym.st_value as usize,
-            end: sym.st_value as usize + size
+            end: sym.st_value as usize + size,
         }
     }
 
@@ -102,7 +108,11 @@ fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Resul
 
     let range_path = r(sym_path, pathlen);
     let range_path_plus1 = r(sym_path, pathlen + 1);
-    let actual_end = [&range_self, &range_dlopen, &range_cookie, &range_path_plus1].iter().map(|r| r.end).max().unwrap();
+    let actual_end = [&range_self, &range_dlopen, &range_cookie, &range_path_plus1]
+        .iter()
+        .map(|r| r.end)
+        .max()
+        .unwrap();
 
     let mut payload = PAYLOAD_ELF[phdr.file_range()].to_owned();
     payload.resize(actual_end, 0);
@@ -166,7 +176,8 @@ fn main() -> Result<()> {
         ptrace::write(pid, addr, saved_instr as *mut c_void).context("write2")?;
     }
 
-    let payload = generate_payload(mmap_res, dlopen_vmaddr, &args[1]).context("Failed to generate payload")?;
+    let payload = generate_payload(mmap_res, dlopen_vmaddr, &args[1])
+        .context("Failed to generate payload")?;
 
     println!("Writing {} bytes", payload.len());
     process_vm_writev(
@@ -181,7 +192,7 @@ fn main() -> Result<()> {
     let mut modified2_regs = saved_regs;
 
     // +2 to compensate kernel's syscall restart mechanism.
-    // payload can be entered at both offset 0 and 2 to 
+    // payload can be entered at both offset 0 and 2 to
     // work in non-sycall case as well
     // is there a better way?
     // does the syscall get skipped in a retarded manner, or

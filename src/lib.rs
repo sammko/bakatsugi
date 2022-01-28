@@ -49,7 +49,7 @@ fn get_self(maps: &[MapRange]) -> Result<u64> {
 #[derive(Debug)]
 pub struct PayloadData {
     pub cookie: [u8; 16],
-    pub was_syscall: bool
+    pub was_syscall: bool,
 }
 
 fn get_payload_data(self_vmaddr: u64) -> Result<PayloadData> {
@@ -58,8 +58,8 @@ fn get_payload_data(self_vmaddr: u64) -> Result<PayloadData> {
         let flagv = *((self_vmaddr + PAYLOAD_OFFSET_FLAGV) as *const u8);
         return Ok(PayloadData {
             cookie: cookie.try_into()?,
-            was_syscall: flagv > 0
-        })
+            was_syscall: flagv > 0,
+        });
     }
 }
 
