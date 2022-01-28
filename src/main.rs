@@ -61,20 +61,12 @@ fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
 fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Result<Vec<u8>> {
     static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
     let elf = goblin::elf::Elf::parse(PAYLOAD_ELF)?;
-
-    let output_shdr = elf
-        .section_headers
-        .iter()
-        .filter_map(|sh| {
-            elf.shdr_strtab
-                .get_at(sh.sh_name)
-                .and_then(|n| if n == "output" { Some(sh) } else { None })
-        })
-        .next()
-        .context("No 'output' section in payload.elf")?;
-    
-    let output_range = output_shdr.file_range().context("output section has no range in file")?;
     let lib = path.as_bytes();
+
+    if elf.program_headers.len() != 1 {
+        bail!("elf must contain exactly one phdr")
+    }
+    let phdr = elf.program_headers.get(0).unwrap();
 
     let mut sym_self = None;
     let mut sym_dlopen = None;
@@ -98,18 +90,28 @@ fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Resul
         }
     }
 
-    let mut payload = PAYLOAD_ELF[output_range].to_owned();
-    payload[r(&sym_self.context("Symbol self missing")?, 8)].copy_from_slice(&self_vmaddr.to_le_bytes());
-    payload[r(&sym_dlopen.context("Symbol dlopen missing")?, 8)].copy_from_slice(&dlopen_vmaddr.to_le_bytes());
-    payload[r(&sym_p_ref.context("Symbol p_ref missing")?, 16)].copy_from_slice(b"AhojTotoJeString"); // TODO
+    let range_self = r(&sym_self.context("Symbol self missing")?, 8);
+    let range_dlopen = r(&sym_dlopen.context("Symbol dlopen missing")?, 8);
+    let range_p_ref = r(&sym_p_ref.context("Symbol p_ref missing")?, 16);
 
     let pathlen = lib.len();
     let sym_path = &sym_path.context("Symbol path missing")?;
     if pathlen > 255 {
         bail!("Path cannot be longer than 255 bytes")
     }
-    payload[r(sym_path, pathlen)].copy_from_slice(&lib);
-    payload[sym_path.st_value as usize + pathlen] = 0;
+
+    let range_path = r(sym_path, pathlen);
+    let range_path_plus1 = r(sym_path, pathlen + 1);
+    let actual_end = [&range_self, &range_dlopen, &range_p_ref, &range_path_plus1].iter().map(|r| r.end).max().unwrap();
+
+    let mut payload = PAYLOAD_ELF[phdr.file_range()].to_owned();
+    payload.resize(actual_end, 0);
+
+    payload[range_self].copy_from_slice(&self_vmaddr.to_le_bytes());
+    payload[range_dlopen].copy_from_slice(&dlopen_vmaddr.to_le_bytes());
+    payload[range_p_ref].copy_from_slice(b"AhojTotoJeString"); // TODO
+    payload[range_path.clone()].copy_from_slice(&lib);
+    payload[range_path.end] = 0;
 
     Ok(payload)
 }
