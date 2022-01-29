@@ -22,6 +22,7 @@ use nix::{
     unistd::Pid,
 };
 use proc_maps::MapRange;
+use rand::{distributions::Alphanumeric, Rng};
 use regex::Regex;
 
 fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
@@ -64,7 +65,21 @@ fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
     bail!("Could not find dlopen");
 }
 
-fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Result<Vec<u8>> {
+fn generate_random_cookie() -> [u8; 16] {
+    let mut rng = rand::thread_rng();
+    let mut cookie = [0u8; 16];
+    for x in &mut cookie {
+        *x = rng.sample(&Alphanumeric);
+    }
+    return cookie;
+}
+
+fn generate_payload(
+    self_vmaddr: u64,
+    dlopen_vmaddr: u64,
+    path: &OsStr,
+    cookie: &[u8; 16],
+) -> Result<Vec<u8>> {
     static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
     let elf = goblin::elf::Elf::parse(PAYLOAD_ELF)?;
     let lib = path.as_bytes();
@@ -119,7 +134,7 @@ fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, path: &OsStr) -> Resul
 
     payload[range_self].copy_from_slice(&self_vmaddr.to_le_bytes());
     payload[range_dlopen].copy_from_slice(&dlopen_vmaddr.to_le_bytes());
-    payload[range_cookie].copy_from_slice(b"AhojTotoJeString"); // TODO
+    payload[range_cookie].copy_from_slice(cookie);
     payload[range_path.clone()].copy_from_slice(&lib);
     payload[range_path.end] = 0;
 
@@ -176,7 +191,8 @@ fn main() -> Result<()> {
         ptrace::write(pid, addr, saved_instr as *mut c_void).context("write2")?;
     }
 
-    let payload = generate_payload(mmap_res, dlopen_vmaddr, &args[1])
+    let cookie = generate_random_cookie();
+    let payload = generate_payload(mmap_res, dlopen_vmaddr, &args[1], &cookie)
         .context("Failed to generate payload")?;
 
     println!("Writing {} bytes", payload.len());
