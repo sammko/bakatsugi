@@ -1,10 +1,14 @@
 #![feature(let_else)]
+#![feature(peer_credentials_unix_socket)]
+#![feature(unix_socket_abstract)]
 
 use std::{
     ffi::{c_void, OsStr, OsString},
     fs,
+    io::Read,
+    net::Shutdown,
     ops::Range,
-    os::unix::prelude::OsStrExt,
+    os::unix::{net::SocketAddr, net::UnixListener, prelude::OsStrExt},
 };
 
 use anyhow::{bail, Context, Result};
@@ -141,6 +145,11 @@ fn generate_payload(
     Ok(payload)
 }
 
+fn bind_listener(cookie: &[u8; 16]) -> Result<UnixListener> {
+    let addr = SocketAddr::from_abstract_namespace(cookie)?;
+    Ok(UnixListener::bind_addr(&addr)?)
+}
+
 fn main() -> Result<()> {
     let args: Vec<OsString> = std::env::args_os().collect();
     let pid = Pid::from_raw(args[2].to_str().context("pid not utf8")?.parse::<i32>()?);
@@ -225,6 +234,8 @@ fn main() -> Result<()> {
     println!("Stack is at 0x{:016x}", modified2_regs.rsp);
     ptrace::setregs(pid, modified2_regs).context("setregs2")?;
 
+    let listener = bind_listener(&cookie)?;
+
     println!("Running payload");
     ptrace::cont(pid, None)?;
 
@@ -236,5 +247,27 @@ fn main() -> Result<()> {
     println!("Restoring and detaching");
     ptrace::setregs(pid, saved_regs)?;
     ptrace::detach(pid, None).context("detach")?;
+
+    let mut socket = loop {
+        let (socket, _) = listener.accept()?;
+        if let Ok(uc) = socket.peer_cred() {
+            if let Some(rpid) = uc.pid {
+                if Pid::from_raw(rpid) == pid {
+                    break socket;
+                }
+                println!("Ignore conn from pid: {}", rpid);
+            }
+        }
+        println!("Ignore conn from unknown pid");
+        socket.shutdown(Shutdown::Both)?;
+    };
+
+    let mut str = String::new();
+    socket.read_to_string(&mut str)?;
+    println!("recvd: {}", &str);
+
+    socket.shutdown(Shutdown::Both)?;
+
+
     Ok(())
 }
