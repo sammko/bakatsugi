@@ -4,31 +4,36 @@
 #![feature(unix_socket_ancillary_data)]
 
 use std::{
-    ffi::{c_void, OsString},
-    fs::{self, File},
-    io::IoSlice,
+    ffi::{c_void, CStr, OsString},
+    fs::{self, read, File},
+    io::{IoSlice, Write},
+    mem,
     net::Shutdown,
     ops::Range,
     os::unix::{
         net::SocketAddr,
         net::{SocketAncillary, UnixListener, UnixStream},
-        prelude::AsRawFd,
+        prelude::{FromRawFd, RawFd},
     },
 };
 
 use anyhow::{bail, Context, Result};
-use goblin::{elf::Sym, Object};
+use goblin::{
+    elf::{Elf, Sym},
+    Object,
+};
 use nix::{
     libc::{
         SYS_mmap, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_EVENT_STOP,
     },
     sys::{
+        memfd::{memfd_create, MemFdCreateFlag},
         ptrace::{self, AddressType},
         signal::Signal,
         uio::{process_vm_writev, IoVec, RemoteIoVec},
         wait::{self, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{close, Pid},
 };
 use proc_maps::MapRange;
 use rand::{distributions::Alphanumeric, Rng};
@@ -83,9 +88,40 @@ fn generate_random_cookie() -> [u8; 16] {
     cookie
 }
 
+fn create_bakatsugi_memfd() -> Result<RawFd> {
+    /* TODO
+     * Unfortunately, there's quite a bit of copying arond going on here,
+     * try to improve that.
+     */
+    let exe = std::env::current_exe()?;
+    let exe_data = read(exe)?;
+    let elf = Elf::parse(&exe_data)?;
+
+    let mut baka_shdr = None;
+    for shdr in elf.section_headers {
+        match elf.shdr_strtab.get_at(shdr.sh_name) {
+            Some(".bakatsugi") => baka_shdr = Some(shdr),
+            Some(_) | None => {}
+        }
+    }
+    let baka_range = baka_shdr
+        .context("Could not find .bakatsugi section")?
+        .file_range()
+        .context("Section .bakatsugi has no range in file")?;
+
+    let memfd = memfd_create(
+        CStr::from_bytes_with_nul(b"libbakatsugi\0").unwrap(),
+        MemFdCreateFlag::empty(),
+    )?;
+    let mut file = unsafe { File::from_raw_fd(memfd) };
+    file.write_all(&exe_data[baka_range])?;
+    mem::forget(file);
+    Ok(memfd)
+}
+
 fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Result<Vec<u8>> {
     static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
-    let elf = goblin::elf::Elf::parse(PAYLOAD_ELF)?;
+    let elf = Elf::parse(PAYLOAD_ELF)?;
 
     if elf.program_headers.len() != 1 {
         bail!("elf must contain exactly one phdr")
@@ -161,7 +197,9 @@ fn accept_target_connection(listener: UnixListener, pid: Pid) -> Result<UnixStre
 
 fn main() -> Result<()> {
     let args: Vec<OsString> = std::env::args_os().collect();
-    let pid = Pid::from_raw(args[2].to_str().context("pid not utf8")?.parse::<i32>()?);
+    let pid = Pid::from_raw(args[1].to_str().context("pid not utf8")?.parse::<i32>()?);
+    let bakatsugi_memfd = create_bakatsugi_memfd()?;
+
     ptrace::seize(pid, ptrace::Options::PTRACE_O_TRACESYSGOOD)?;
     ptrace::interrupt(pid)?;
 
@@ -252,14 +290,15 @@ fn main() -> Result<()> {
 
     println!("Sending fd");
 
-    let gift_file = File::open(&args[1])?;
     let mut ancillary_buffer = [0; 128];
     let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
-    ancillary.add_fds(&[gift_file.as_raw_fd()]);
+    ancillary.add_fds(&[bakatsugi_memfd]);
     socket.send_vectored_with_ancillary(
         &[IoSlice::new(&[1, 2]), IoSlice::new(&[3, 4])],
         &mut ancillary,
     )?;
+
+    close(bakatsugi_memfd)?;
 
     socket.shutdown(Shutdown::Both)?;
 
