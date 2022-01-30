@@ -11,7 +11,7 @@ use std::{
     ops::Range,
     os::unix::{
         net::SocketAddr,
-        net::{SocketAncillary, UnixListener},
+        net::{SocketAncillary, UnixListener, UnixStream},
         prelude::AsRawFd,
     },
 };
@@ -137,6 +137,28 @@ fn bind_listener(cookie: &[u8; 16]) -> Result<UnixListener> {
     Ok(UnixListener::bind_addr(&addr)?)
 }
 
+fn accept_target_connection(listener: UnixListener, pid: Pid) -> Result<UnixStream> {
+    let mut got_pid = false;
+    let socket = loop {
+        let (socket, _) = listener.accept()?;
+        if let Ok(uc) = socket.peer_cred() {
+            if let Some(rpid) = uc.pid {
+                if Pid::from_raw(rpid) == pid {
+                    break socket;
+                }
+                println!("Ignore conn from pid: {}", rpid);
+                got_pid = true;
+            }
+        }
+        if !got_pid {
+            println!("Ignore conn from unknown pid");
+        }
+        socket.shutdown(Shutdown::Both)?;
+    };
+    drop(listener);
+    Ok(socket)
+}
+
 fn main() -> Result<()> {
     let args: Vec<OsString> = std::env::args_os().collect();
     let pid = Pid::from_raw(args[2].to_str().context("pid not utf8")?.parse::<i32>()?);
@@ -226,20 +248,7 @@ fn main() -> Result<()> {
     println!("Running payload");
     ptrace::cont(pid, None)?;
 
-    let socket = loop {
-        let (socket, _) = listener.accept()?;
-        if let Ok(uc) = socket.peer_cred() {
-            if let Some(rpid) = uc.pid {
-                if Pid::from_raw(rpid) == pid {
-                    break socket;
-                }
-                println!("Ignore conn from pid: {}", rpid);
-            }
-        }
-        println!("Ignore conn from unknown pid");
-        socket.shutdown(Shutdown::Both)?;
-    };
-    drop(listener);
+    let socket = accept_target_connection(listener, pid)?;
 
     println!("Sending fd");
 
