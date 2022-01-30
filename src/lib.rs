@@ -56,10 +56,10 @@ fn get_payload_data(self_vmaddr: u64) -> Result<PayloadData> {
     unsafe {
         let cookie = slice::from_raw_parts((self_vmaddr + PAYLOAD_OFFSET_COOKIE) as *const u8, 16);
         let flagv = *((self_vmaddr + PAYLOAD_OFFSET_FLAGV) as *const u8);
-        return Ok(PayloadData {
+        Ok(PayloadData {
             cookie: cookie.try_into()?,
             was_syscall: flagv > 0,
-        });
+        })
     }
 }
 

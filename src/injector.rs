@@ -80,7 +80,7 @@ fn generate_random_cookie() -> [u8; 16] {
     for x in &mut cookie {
         *x = rng.sample(&Alphanumeric);
     }
-    return cookie;
+    cookie
 }
 
 fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Result<Vec<u8>> {
