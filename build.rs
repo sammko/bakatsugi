@@ -37,11 +37,29 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
 
 fn build_payload(out_dir: &str) -> Result<()> {
     Command::new("nasm")
-        .args(["src/payload.asm", "-f", "elf64", "-o"])
+        .args(["src/payload_stub.asm", "-f", "elf64", "-o"])
+        .arg(format!("{}/payload_stub.o", out_dir))
+        .status()?;
+
+    Command::new("gcc")
+        .args([
+            "-Os",
+            "-c",
+            "-fno-asynchronous-unwind-tables",
+            "-pedantic",
+            "-nostdlib",
+            "-Wall",
+            "-Wextra",
+            "-fPIC",
+            "-fno-stack-protector",
+            "-o",
+        ])
         .arg(format!("{}/payload.o", out_dir))
+        .arg("src/payload.c")
         .status()?;
 
     Command::new("ld")
+        .arg(format!("{}/payload_stub.o", out_dir))
         .arg(format!("{}/payload.o", out_dir))
         .args(["-T", "script.ld", "-o"])
         .arg(format!("{}/{}", out_dir, PAYLOAD_ELF))
@@ -56,7 +74,8 @@ fn main() -> Result<()> {
     build_payload(&out_dir)?;
     generate_payload_consts(&out_dir)?;
 
-    cargo_emit::rerun_if_changed!("src/payload.asm");
+    cargo_emit::rerun_if_changed!("src/payload.c");
+    cargo_emit::rerun_if_changed!("src/payload_stub.asm");
     cargo_emit::rerun_if_changed!("script.ld");
 
     Ok(())

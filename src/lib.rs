@@ -1,10 +1,3 @@
-#![feature(unix_socket_abstract)]
-use std::{
-    io::Write,
-    net::Shutdown,
-    os::unix::net::{SocketAddr, UnixStream},
-};
-
 use core::slice;
 use std::arch::asm;
 
@@ -77,11 +70,6 @@ fn init() -> Result<()> {
     let data = get_payload_data(self_vmaddr)?;
 
     println!("{:?}", data);
-
-    let addr = SocketAddr::from_abstract_namespace(&data.cookie)?;
-    let mut sock = UnixStream::connect_addr(&addr)?;
-    sock.write(b"Hello\n")?;
-    sock.shutdown(Shutdown::Both)?;
 
     Ok(())
 }

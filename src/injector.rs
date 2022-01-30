@@ -1,14 +1,19 @@
 #![feature(let_else)]
 #![feature(peer_credentials_unix_socket)]
 #![feature(unix_socket_abstract)]
+#![feature(unix_socket_ancillary_data)]
 
 use std::{
-    ffi::{c_void, OsStr, OsString},
-    fs,
-    io::Read,
+    ffi::{c_void, OsString},
+    fs::{self, File},
+    io::IoSlice,
     net::Shutdown,
     ops::Range,
-    os::unix::{net::SocketAddr, net::UnixListener, prelude::OsStrExt},
+    os::unix::{
+        net::SocketAddr,
+        net::{SocketAncillary, UnixListener},
+        prelude::AsRawFd,
+    },
 };
 
 use anyhow::{bail, Context, Result};
@@ -78,15 +83,9 @@ fn generate_random_cookie() -> [u8; 16] {
     return cookie;
 }
 
-fn generate_payload(
-    self_vmaddr: u64,
-    dlopen_vmaddr: u64,
-    path: &OsStr,
-    cookie: &[u8; 16],
-) -> Result<Vec<u8>> {
+fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Result<Vec<u8>> {
     static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
     let elf = goblin::elf::Elf::parse(PAYLOAD_ELF)?;
-    let lib = path.as_bytes();
 
     if elf.program_headers.len() != 1 {
         bail!("elf must contain exactly one phdr")
@@ -96,14 +95,12 @@ fn generate_payload(
     let mut sym_self = None;
     let mut sym_dlopen = None;
     let mut sym_cookie = None;
-    let mut sym_path = None;
 
     for sym in elf.syms.iter() {
         match elf.strtab.get_at(sym.st_name) {
             Some("self") => sym_self = Some(sym),
             Some("dlopen") => sym_dlopen = Some(sym),
             Some("cookie") => sym_cookie = Some(sym),
-            Some("path") => sym_path = Some(sym),
             Some(_) | None => {}
         }
     }
@@ -119,15 +116,7 @@ fn generate_payload(
     let range_dlopen = r(&sym_dlopen.context("Symbol dlopen missing")?, 8);
     let range_cookie = r(&sym_cookie.context("Symbol cookie missing")?, 16);
 
-    let pathlen = lib.len();
-    let sym_path = &sym_path.context("Symbol path missing")?;
-    if pathlen > 255 {
-        bail!("Path cannot be longer than 255 bytes")
-    }
-
-    let range_path = r(sym_path, pathlen);
-    let range_path_plus1 = r(sym_path, pathlen + 1);
-    let actual_end = [&range_self, &range_dlopen, &range_cookie, &range_path_plus1]
+    let actual_end = [&range_self, &range_dlopen, &range_cookie]
         .iter()
         .map(|r| r.end)
         .max()
@@ -139,8 +128,6 @@ fn generate_payload(
     payload[range_self].copy_from_slice(&self_vmaddr.to_le_bytes());
     payload[range_dlopen].copy_from_slice(&dlopen_vmaddr.to_le_bytes());
     payload[range_cookie].copy_from_slice(cookie);
-    payload[range_path.clone()].copy_from_slice(&lib);
-    payload[range_path.end] = 0;
 
     Ok(payload)
 }
@@ -201,8 +188,8 @@ fn main() -> Result<()> {
     }
 
     let cookie = generate_random_cookie();
-    let payload = generate_payload(mmap_res, dlopen_vmaddr, &args[1], &cookie)
-        .context("Failed to generate payload")?;
+    let payload =
+        generate_payload(mmap_res, dlopen_vmaddr, &cookie).context("Failed to generate payload")?;
 
     println!("Writing {} bytes", payload.len());
     process_vm_writev(
@@ -239,16 +226,7 @@ fn main() -> Result<()> {
     println!("Running payload");
     ptrace::cont(pid, None)?;
 
-    let waitstatus = wait::waitpid(pid, None)?;
-    if !matches!(waitstatus, WaitStatus::Stopped(_pid, Signal::SIGTRAP)) {
-        bail!("Unexpected WaitStatus after ptrace::step: {:?}", waitstatus);
-    }
-
-    println!("Restoring and detaching");
-    ptrace::setregs(pid, saved_regs)?;
-    ptrace::detach(pid, None).context("detach")?;
-
-    let mut socket = loop {
+    let socket = loop {
         let (socket, _) = listener.accept()?;
         if let Ok(uc) = socket.peer_cred() {
             if let Some(rpid) = uc.pid {
@@ -261,13 +239,29 @@ fn main() -> Result<()> {
         println!("Ignore conn from unknown pid");
         socket.shutdown(Shutdown::Both)?;
     };
+    drop(listener);
 
-    let mut str = String::new();
-    socket.read_to_string(&mut str)?;
-    println!("recvd: {}", &str);
+    println!("Sending fd");
+
+    let gift_file = File::open(&args[1])?;
+    let mut ancillary_buffer = [0; 128];
+    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
+    ancillary.add_fds(&[gift_file.as_raw_fd()]);
+    socket.send_vectored_with_ancillary(
+        &[IoSlice::new(&[1, 2]), IoSlice::new(&[3, 4])],
+        &mut ancillary,
+    )?;
 
     socket.shutdown(Shutdown::Both)?;
 
+    let waitstatus = wait::waitpid(pid, None)?;
+    if !matches!(waitstatus, WaitStatus::Stopped(_pid, Signal::SIGTRAP)) {
+        bail!("Unexpected WaitStatus after ptrace::cont: {:?}", waitstatus);
+    }
+
+    println!("Restoring and detaching");
+    ptrace::setregs(pid, saved_regs)?;
+    ptrace::detach(pid, None).context("detach")?;
 
     Ok(())
 }
