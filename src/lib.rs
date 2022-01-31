@@ -36,9 +36,11 @@ fn get_self(maps: &[MapRange]) -> Result<u64> {
     let mut rsp_aligned = (rsp + 4096) & 0xfffffffffffff000;
     while rsp_aligned < (stack_mapping.start() + stack_mapping.size()) as u64 {
         eprintln!("Checking at 0x{:x}", rsp_aligned);
-        let p_rsp = rsp_aligned as *const u64;
+        let p_rsp = rsp_aligned as *mut u64;
         unsafe {
             if *p_rsp == MAGIC {
+                // Clobber magic just in case for future patches
+                *p_rsp = 0;
                 let self_vmaddr = *p_rsp.offset(1);
                 return Ok(self_vmaddr);
             }
