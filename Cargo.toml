@@ -1,3 +1,6 @@
+[profile.release]
+strip = true
+
 [package]
 name = "bakatsugi"
 version = "0.1.0"
