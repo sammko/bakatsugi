@@ -6,7 +6,7 @@
 use std::{
     ffi::{c_void, CStr, OsString},
     fs::{self, read, File},
-    io::{IoSlice, Write},
+    io::{IoSlice, Write, Read},
     mem,
     net::Shutdown,
     ops::Range,
@@ -173,7 +173,7 @@ fn bind_listener(cookie: &[u8; 16]) -> Result<UnixListener> {
     Ok(UnixListener::bind_addr(&addr)?)
 }
 
-fn accept_target_connection(listener: UnixListener, pid: Pid) -> Result<UnixStream> {
+fn accept_target_connection(listener: &UnixListener, pid: Pid) -> Result<UnixStream> {
     let mut got_pid = false;
     let socket = loop {
         let (socket, _) = listener.accept()?;
@@ -191,7 +191,6 @@ fn accept_target_connection(listener: UnixListener, pid: Pid) -> Result<UnixStre
         }
         socket.shutdown(Shutdown::Both)?;
     };
-    drop(listener);
     Ok(socket)
 }
 
@@ -286,7 +285,7 @@ fn main() -> Result<()> {
     println!("Running payload");
     ptrace::cont(pid, None)?;
 
-    let socket = accept_target_connection(listener, pid)?;
+    let socket = accept_target_connection(&listener, pid)?;
 
     println!("Sending fd");
 
@@ -310,6 +309,12 @@ fn main() -> Result<()> {
     println!("Restoring and detaching");
     ptrace::setregs(pid, saved_regs)?;
     ptrace::detach(pid, None).context("detach")?;
+
+    let mut socket = accept_target_connection(&listener, pid)?;
+    drop(listener);
+    let mut s = String::new();
+    socket.read_to_string(&mut s)?;
+    println!("recvd from stage2: {}", &s);
 
     Ok(())
 }
