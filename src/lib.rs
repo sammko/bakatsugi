@@ -21,7 +21,6 @@ use nix::{
     sys::mman::{mprotect, ProtFlags},
     unistd::getpid,
 };
-use proc_maps::MapRange;
 use rand::{prelude::SliceRandom, thread_rng};
 
 include!(concat!(env!("OUT_DIR"), "/payload_constants.rs"));
@@ -35,8 +34,10 @@ fn _init() {
     }
 }
 
-#[no_mangle]
-fn get_self(maps: &[MapRange]) -> Result<u64> {
+fn get_stage1_vma() -> Result<u64> {
+    let pid = getpid();
+    let maps = proc_maps::get_process_maps(pid.as_raw())?;
+
     let rsp: u64;
     unsafe {
         asm!("mov {}, rsp", out(reg) rsp);
@@ -72,15 +73,13 @@ pub struct PayloadData {
     pub was_syscall: bool,
 }
 
-fn get_payload_data(self_vmaddr: u64) -> Result<PayloadData> {
-    unsafe {
-        let cookie = slice::from_raw_parts((self_vmaddr + PAYLOAD_OFFSET_COOKIE) as *const u8, 16);
-        let flagv = *((self_vmaddr + PAYLOAD_OFFSET_FLAGV) as *const u8);
-        Ok(PayloadData {
-            cookie: cookie.try_into()?,
-            was_syscall: flagv > 0,
-        })
-    }
+unsafe fn get_payload_data(stage1_vma: u64) -> Result<PayloadData> {
+    let cookie = slice::from_raw_parts((stage1_vma + PAYLOAD_OFFSET_COOKIE) as *const u8, 16);
+    let flagv = *((stage1_vma + PAYLOAD_OFFSET_FLAGV) as *const u8);
+    Ok(PayloadData {
+        cookie: cookie.try_into()?,
+        was_syscall: flagv > 0,
+    })
 }
 
 fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
@@ -156,10 +155,8 @@ pub unsafe extern "C" fn fakewrite(
 }
 
 fn init() -> Result<()> {
-    let pid = getpid();
-    let maps = proc_maps::get_process_maps(pid.as_raw())?;
-    let self_vmaddr = get_self(&maps)?;
-    let data = get_payload_data(self_vmaddr)?;
+    let stage1_vma = get_stage1_vma()?;
+    let data = unsafe { get_payload_data(stage1_vma)? };
 
     println!("{:?}", data);
 
