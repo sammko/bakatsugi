@@ -130,7 +130,7 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
             4096,
             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
         )?;
-        *((x + offset) as *mut usize) = fake_fun;
+        *((x + offset) as *mut usize) = fake_fun + symbol_reloc.r_addend.unwrap_or(0) as usize;
     }
 
     Ok(())
