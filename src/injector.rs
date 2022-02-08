@@ -40,7 +40,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use regex::Regex;
 
 fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
-    let re = Regex::new(r"^libc-[0-9.]+\.so$")?;
+    let re = Regex::new(r"^libc(-[0-9.]+)?\.so[0-9.]*$")?;
     for map in proc_maps::get_process_maps(pid.as_raw())? {
         // ASSUMPTION: libc contains only one executable mapping,
         // corresponding to the LOAD phdr containing .text.
