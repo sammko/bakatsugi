@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use ctor::ctor;
-use goblin::{elf::Elf, elf64::reloc::R_X86_64_GLOB_DAT};
+use goblin::{elf::Elf, elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT}};
 use nix::{
     libc::{self, c_int, c_void, getauxval, AT_PHDR},
     sys::mman::{mprotect, ProtFlags},
@@ -91,6 +91,7 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     let symbol_reloc = elf
         .dynrelas
         .iter()
+        .chain(elf.pltrelocs.iter())
         .find(|r| {
             elf.dynsyms
                 .get(r.r_sym)
@@ -99,7 +100,7 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
         })
         .context(format!("Could not find reloc for {}", name))?;
 
-    if symbol_reloc.r_type != R_X86_64_GLOB_DAT {
+    if !(symbol_reloc.r_type == R_X86_64_GLOB_DAT || symbol_reloc.r_type == R_X86_64_JUMP_SLOT) {
         bail!("Unsupported relocation {}", symbol_reloc.r_type)
     }
 
