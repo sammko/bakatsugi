@@ -292,10 +292,7 @@ fn main() -> Result<()> {
     let mut ancillary_buffer = [0; 128];
     let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
     ancillary.add_fds(&[bakatsugi_memfd]);
-    socket.send_vectored_with_ancillary(
-        &[IoSlice::new(&[1, 2]), IoSlice::new(&[3, 4])],
-        &mut ancillary,
-    )?;
+    socket.send_vectored_with_ancillary(&[IoSlice::new(&[0])], &mut ancillary)?;
 
     close(bakatsugi_memfd)?;
 
