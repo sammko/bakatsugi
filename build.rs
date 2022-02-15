@@ -1,3 +1,5 @@
+#![feature(exit_status_error)]
+
 use anyhow::{Context, Result};
 use const_gen::{const_declaration, CompileConst};
 use std::{env, fs, path::Path, process::Command};
@@ -35,11 +37,30 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     Ok(())
 }
 
+trait CommandExt {
+    fn status_exit_ok(&mut self) -> Result<()>;
+}
+
+impl CommandExt for Command {
+    fn status_exit_ok(&mut self) -> Result<()> {
+        let program = self
+            .get_program()
+            .to_str()
+            .expect("program name not utf-8")
+            .to_owned();
+        self.status()
+            .context(format!("Failed to execute {}", program))?
+            .exit_ok()
+            .context(format!("{} did not exit successfully", program))?;
+        Ok(())
+    }
+}
+
 fn build_payload(out_dir: &str) -> Result<()> {
     Command::new("nasm")
         .args(["src/payload_stub.asm", "-f", "elf64", "-o"])
         .arg(format!("{}/payload_stub.o", out_dir))
-        .status()?;
+        .status_exit_ok()?;
 
     Command::new("gcc")
         .args([
@@ -56,14 +77,14 @@ fn build_payload(out_dir: &str) -> Result<()> {
         ])
         .arg(format!("{}/payload.o", out_dir))
         .arg("src/payload.c")
-        .status()?;
+        .status_exit_ok()?;
 
     Command::new("ld")
         .arg(format!("{}/payload_stub.o", out_dir))
         .arg(format!("{}/payload.o", out_dir))
         .args(["-T", "script.ld", "-o"])
         .arg(format!("{}/{}", out_dir, PAYLOAD_ELF))
-        .status()?;
+        .status_exit_ok()?;
 
     Ok(())
 }
