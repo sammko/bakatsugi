@@ -15,7 +15,10 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use ctor::ctor;
-use goblin::{elf::Elf, elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT}};
+use goblin::{
+    elf::Elf,
+    elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
+};
 use nix::{
     libc::{self, c_int, c_void, getauxval, AT_PHDR},
     sys::mman::{mprotect, ProtFlags},

@@ -6,7 +6,7 @@
 use std::{
     ffi::{c_void, CStr, OsString},
     fs::{self, read, File},
-    io::{IoSlice, Write, Read},
+    io::{IoSlice, Read, Write},
     mem,
     net::Shutdown,
     ops::Range,
