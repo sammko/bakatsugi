@@ -136,20 +136,16 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     Ok(())
 }
 
-pub unsafe extern "C" fn fakewrite(
-    fildes: c_int,
-    buf: *const c_void,
-    nbyte: c_size_t,
-) -> c_ssize_t {
+pub extern "C" fn fakewrite(fildes: c_int, buf: *const c_void, nbyte: c_size_t) -> c_ssize_t {
     if nbyte > 0 {
-        let inp = &*slice_from_raw_parts(buf as *const u8, nbyte);
+        let inp = unsafe { &*slice_from_raw_parts(buf as *const u8, nbyte) };
         let mut tmp = inp.to_owned();
         if inp[nbyte - 1] == b'\n' {
             tmp[..nbyte - 1].shuffle(&mut thread_rng());
         } else {
             tmp.shuffle(&mut thread_rng());
         }
-        libc::write(fildes, tmp.as_ptr() as *const c_void, nbyte)
+        unsafe { libc::write(fildes, tmp.as_ptr() as *const c_void, nbyte) }
     } else {
         0
     }
