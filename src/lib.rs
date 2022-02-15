@@ -163,7 +163,7 @@ fn init() -> Result<()> {
 
     let addr = SocketAddr::from_abstract_namespace(&data.cookie)?;
     let mut sock = UnixStream::connect_addr(&addr)?;
-    sock.write(b"Hello")?;
+    sock.write_all(b"Hello")?;
 
     patch_reloc("write", fakewrite as usize)?;
 
