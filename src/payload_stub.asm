@@ -49,4 +49,3 @@ self   resq 1
 dlopen resq 1
 flagv  resb 1
 cookie resb 16
-
