@@ -17,13 +17,10 @@ use anyhow::{bail, Context, Result};
 use ctor::ctor;
 use goblin::{
     elf::Elf,
-    elf64::{
-        program_header::PT_LOAD,
-        reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
-    },
+    elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
 };
 use nix::{
-    libc::{self, c_int, c_void, getauxval, AT_PHDR},
+    libc::{self, c_int, c_void, getauxval, AT_ENTRY},
     sys::mman::{mprotect, ProtFlags},
     unistd::getpid,
 };
@@ -89,27 +86,17 @@ unsafe fn get_payload_data(stage1_vma: u64) -> Result<PayloadData> {
 }
 
 fn find_load_bias(self_exe: &Elf) -> Result<u64> {
-    // Watch out, kernel doesn't populate the auxv correctly.
+    // Watch out, kernel doesn't populate the AT_PHDR auxv correctly.
     // https://bugzilla.kernel.org/show_bug.cgi?id=197921
-    // This is such a fringe problem that it doesn't really matter though.
+    // We can use the AT_ENTRY also, the calculation is even simpler.
 
-    // Which segment contains phdr table based on e_phoff
-    let phdr_segment = self_exe
-        .program_headers
-        .iter()
-        .filter(|phdr| phdr.p_type == PT_LOAD)
-        .find(|phdr| {
-            phdr.file_range()
-                .contains(&(self_exe.header.e_phoff as usize))
-        })
-        .context("No load segment contains phdrs")?;
-    let phdr_addr = self_exe.header.e_phoff - phdr_segment.p_offset + phdr_segment.p_vaddr;
-    let phdr_vma = match unsafe { getauxval(AT_PHDR) } {
-        0 => bail!("getauxval(AT_PHDR) returned 0"),
+    let entry_addr = self_exe.header.e_entry;
+    let entry_vma = match unsafe { getauxval(AT_ENTRY) } {
+        0 => bail!("getauxval(AT_ENTRY) returned 0"),
         x => x,
     };
 
-    Ok(phdr_vma - phdr_addr)
+    Ok(entry_vma - entry_addr)
 }
 
 fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
