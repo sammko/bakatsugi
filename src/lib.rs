@@ -109,19 +109,11 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
 
     let offset = symbol_reloc.r_offset;
 
-    // Find PHDR containing the relocation's target
-    let phdr = elf
-        .program_headers
-        .iter()
-        .find(|&phdr| phdr.vm_range().contains(&(offset as usize)))
-        .context("Could not find phdr containing reloc offset")?;
-
     // TODO is this correct?
     let phdr_vma = unsafe { getauxval(AT_PHDR) };
     let x = phdr_vma - elf.header.e_phoff;
     let got_entry = x + offset;
 
-    eprintln!("phdr is: {:?}", phdr);
     eprintln!("base: {:x}", x);
     eprintln!("GOT entry at vma {:x}", x + offset);
     eprintln!("fake at {:x}", fake_fun);
