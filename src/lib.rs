@@ -17,7 +17,10 @@ use anyhow::{bail, Context, Result};
 use ctor::ctor;
 use goblin::{
     elf::Elf,
-    elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
+    elf64::{
+        program_header::PT_LOAD,
+        reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
+    },
 };
 use nix::{
     libc::{self, c_int, c_void, getauxval, AT_PHDR},
@@ -85,11 +88,28 @@ unsafe fn get_payload_data(stage1_vma: u64) -> Result<PayloadData> {
     })
 }
 
-fn find_load_bias(self_exe: &Elf) -> u64 {
-    // TODO this calculation is incorrect, but kernel has the same bug
-    // when calculating AT_PHDR https://bugzilla.kernel.org/show_bug.cgi?id=197921
-    let phdr_vma = unsafe { getauxval(AT_PHDR) };
-    phdr_vma - self_exe.header.e_phoff
+fn find_load_bias(self_exe: &Elf) -> Result<u64> {
+    // Watch out, kernel doesn't populate the auxv correctly.
+    // https://bugzilla.kernel.org/show_bug.cgi?id=197921
+    // This is such a fringe problem that it doesn't really matter though.
+
+    // Which segment contains phdr table based on e_phoff
+    let phdr_segment = self_exe
+        .program_headers
+        .iter()
+        .filter(|phdr| phdr.p_type == PT_LOAD)
+        .find(|phdr| {
+            phdr.file_range()
+                .contains(&(self_exe.header.e_phoff as usize))
+        })
+        .context("No load segment contains phdrs")?;
+    let phdr_addr = self_exe.header.e_phoff - phdr_segment.p_offset + phdr_segment.p_vaddr;
+    let phdr_vma = match unsafe { getauxval(AT_PHDR) } {
+        0 => bail!("getauxval(AT_PHDR) returned 0"),
+        x => x,
+    };
+
+    Ok(phdr_vma - phdr_addr)
 }
 
 fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
@@ -116,7 +136,7 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
 
     let offset = symbol_reloc.r_offset;
 
-    let load_bias = find_load_bias(&elf);
+    let load_bias = find_load_bias(&elf)?;
     let got_entry = load_bias + offset;
 
     eprintln!("base: {:x}", load_bias);
