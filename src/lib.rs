@@ -85,6 +85,13 @@ unsafe fn get_payload_data(stage1_vma: u64) -> Result<PayloadData> {
     })
 }
 
+fn find_load_bias(self_exe: &Elf) -> u64 {
+    // TODO this calculation is incorrect, but kernel has the same bug
+    // when calculating AT_PHDR https://bugzilla.kernel.org/show_bug.cgi?id=197921
+    let phdr_vma = unsafe { getauxval(AT_PHDR) };
+    phdr_vma - self_exe.header.e_phoff
+}
+
 fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     // hmm maybe we should be doing this from the outside instead
     let data = fs::read("/proc/self/exe")?;
@@ -109,13 +116,11 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
 
     let offset = symbol_reloc.r_offset;
 
-    // TODO is this correct?
-    let phdr_vma = unsafe { getauxval(AT_PHDR) };
-    let x = phdr_vma - elf.header.e_phoff;
-    let got_entry = x + offset;
+    let load_bias = find_load_bias(&elf);
+    let got_entry = load_bias + offset;
 
-    eprintln!("base: {:x}", x);
-    eprintln!("GOT entry at vma {:x}", x + offset);
+    eprintln!("base: {:x}", load_bias);
+    eprintln!("GOT entry at vma {:x}", got_entry);
     eprintln!("fake at {:x}", fake_fun);
 
     unsafe {
@@ -125,7 +130,8 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
             4096,
             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
         )?;
-        *((x + offset) as *mut usize) = fake_fun + symbol_reloc.r_addend.unwrap_or(0) as usize;
+        *((load_bias + offset) as *mut usize) =
+            fake_fun + symbol_reloc.r_addend.unwrap_or(0) as usize;
     }
 
     Ok(())
