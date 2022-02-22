@@ -3,9 +3,10 @@
 #![feature(unix_socket_abstract)]
 #![feature(unix_socket_ancillary_data)]
 
+use bakatsugi_payload::PAYLOAD_ELF;
 use std::{
     ffi::{c_void, CStr, OsString},
-    fs::{self, read, File},
+    fs::{self, File},
     io::{IoSlice, Read, Write},
     mem,
     net::Shutdown,
@@ -99,38 +100,18 @@ fn generate_random_cookie() -> [u8; 16] {
 }
 
 fn create_bakatsugi_memfd() -> Result<RawFd> {
-    /* TODO
-     * Unfortunately, there's quite a bit of copying arond going on here,
-     * try to improve that.
-     */
-    let exe = std::env::current_exe()?;
-    let exe_data = read(exe)?;
-    let elf = Elf::parse(&exe_data)?;
-
-    let mut baka_shdr = None;
-    for shdr in elf.section_headers {
-        match elf.shdr_strtab.get_at(shdr.sh_name) {
-            Some(".bakatsugi") => baka_shdr = Some(shdr),
-            Some(_) | None => {}
-        }
-    }
-    let baka_range = baka_shdr
-        .context("Could not find .bakatsugi section")?
-        .file_range()
-        .context("Section .bakatsugi has no range in file")?;
-
+    const STAGE2_ELF: &[u8] = include_bytes!(env!("CARGO_CDYLIB_FILE_BAKATSUGI_STAGE2"));
     let memfd = memfd_create(
         CStr::from_bytes_with_nul(b"libbakatsugi\0").unwrap(),
         MemFdCreateFlag::empty(),
     )?;
     let mut file = unsafe { File::from_raw_fd(memfd) };
-    file.write_all(&exe_data[baka_range])?;
+    file.write_all(STAGE2_ELF)?;
     mem::forget(file);
     Ok(memfd)
 }
 
 fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Result<Vec<u8>> {
-    static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
     let elf = Elf::parse(PAYLOAD_ELF)?;
 
     if elf.program_headers.len() != 1 {

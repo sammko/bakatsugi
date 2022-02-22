@@ -27,8 +27,8 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     let sym_flagv = sym_flagv.context("Symbol flagv missing")?;
 
     let declarations = vec![
-        const_declaration!(PAYLOAD_OFFSET_FLAGV = sym_flagv.st_value),
-        const_declaration!(PAYLOAD_OFFSET_COOKIE = sym_cookie.st_value),
+        const_declaration!(pub PAYLOAD_OFFSET_FLAGV = sym_flagv.st_value),
+        const_declaration!(pub PAYLOAD_OFFSET_COOKIE = sym_cookie.st_value),
     ]
     .join("\n");
 

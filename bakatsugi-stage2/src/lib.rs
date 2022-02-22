@@ -1,10 +1,11 @@
 #![feature(unix_socket_abstract)]
 #![feature(c_size_t)]
 
+use bakatsugi_payload::{PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
 use core::slice;
 use std::{
     arch::asm,
-    env, fs,
+    fs,
     io::Write,
     os::{
         raw::{c_size_t, c_ssize_t},
@@ -26,7 +27,6 @@ use nix::{
 };
 use rand::{prelude::SliceRandom, thread_rng};
 
-include!(concat!(env!("OUT_DIR"), "/payload_constants.rs"));
 const MAGIC: u64 = 0x68637450616b6142;
 
 #[ctor]
