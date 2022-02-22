@@ -15,6 +15,7 @@ use std::{
         net::{SocketAncillary, UnixListener, UnixStream},
         prelude::{FromRawFd, RawFd},
     },
+    path::PathBuf,
 };
 
 use anyhow::{bail, Context, Result};
@@ -61,9 +62,18 @@ fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
     bail!("Could not find libc in target")
 }
 
+fn get_mapfile(pid: Pid, maprange: &MapRange) -> PathBuf {
+    PathBuf::from(format!(
+        "/proc/{}/map_files/{:x}-{:x}",
+        pid.as_raw(),
+        maprange.start(),
+        maprange.start() + maprange.size()
+    ))
+}
+
 fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
     let map = get_libc_text_maprange(pid)?;
-    let libc = fs::read(map.filename().unwrap())?;
+    let libc = fs::read(get_mapfile(pid, &map))?;
     let Object::Elf(elf) = Object::parse(&libc)? else { bail!("libc file not ELF") };
 
     let dynstrtab = elf.dynstrtab;
