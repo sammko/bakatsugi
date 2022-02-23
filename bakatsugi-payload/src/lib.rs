@@ -57,3 +57,21 @@ pub fn generate_payload(
 
     Ok(payload)
 }
+
+#[cfg(test)]
+mod tests {
+    use goblin::elf::Elf;
+
+    use crate::PAYLOAD_ELF;
+
+    #[test]
+    fn test_one_phdr() {
+        let elf = Elf::parse(PAYLOAD_ELF).expect("Payload is not valid ELF");
+
+        assert_eq!(
+            1,
+            elf.program_headers.len(),
+            "Payload ELF must contain exactly one Phdr"
+        );
+    }
+}
