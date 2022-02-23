@@ -25,15 +25,15 @@ setflag:
 
 global my_syscall:function
 my_syscall:
-	mov rax, rdi ; syscall number
-	mov rdi, rsi
-	mov rsi, rdx
-	mov rdx, rcx
-	mov r10, r8
-	mov r8, r9
-	mov r9, [rsp+8] ; arg6 on stack
-	syscall
-	ret
+    mov rax, rdi ; syscall number
+    mov rdi, rsi
+    mov rsi, rdx
+    mov rdx, rcx
+    mov r10, r8
+    mov r8, r9
+    mov r9, [rsp+8] ; arg6 on stack
+    syscall
+    ret
 
 global my_dlopen:function
 my_dlopen:
