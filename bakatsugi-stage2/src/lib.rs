@@ -31,6 +31,10 @@ const MAGIC: u64 = 0x68637450616b6142;
 
 #[ctor]
 fn _init() {
+    if cfg!(test) {
+        // Putting a #[cfg(not(test))] on the whole function causes unused code warnings.
+        return;
+    }
     match init() {
         Ok(_) => {}
         Err(e) => eprintln!("=== PATCH FAILED: {} ===", e),
