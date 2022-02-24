@@ -1,7 +1,7 @@
 #![feature(unix_socket_abstract)]
 #![feature(c_size_t)]
 
-use bakatsugi_payload::{PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
+use bakatsugi_payload::{PAYLOAD_MAGIC, PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
 use core::slice;
 use std::{
     arch::asm,
@@ -26,8 +26,6 @@ use nix::{
     unistd::getpid,
 };
 use rand::{prelude::SliceRandom, thread_rng};
-
-const MAGIC: u64 = 0x68637450616b6142;
 
 #[ctor]
 fn _init() {
@@ -62,7 +60,7 @@ fn get_stage1_vma() -> Result<u64> {
         eprintln!("Checking at 0x{:x}", rsp_aligned);
         let p_rsp = rsp_aligned as *mut u64;
         unsafe {
-            if *p_rsp == MAGIC {
+            if *p_rsp == PAYLOAD_MAGIC {
                 // Clobber magic just in case for future patches
                 *p_rsp = 0;
                 let self_vmaddr = *p_rsp.offset(1);

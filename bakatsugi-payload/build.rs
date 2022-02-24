@@ -14,21 +14,38 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
 
     let mut sym_cookie = None;
     let mut sym_flagv = None;
+    let mut sym_magic = None;
 
     for sym in elf.syms.iter() {
         match elf.strtab.get_at(sym.st_name) {
             Some("cookie") => sym_cookie = Some(sym),
             Some("flagv") => sym_flagv = Some(sym),
+            Some("magic") => sym_magic = Some(sym),
             Some(_) | None => {}
         }
     }
 
     let sym_cookie = sym_cookie.context("Symbol cookie missing")?;
     let sym_flagv = sym_flagv.context("Symbol flagv missing")?;
+    let sym_magic = sym_magic.context("Symbol magic missing")?;
+
+    let magic_offset = sym_magic.st_value;
+    let magic_section = elf
+        .section_headers
+        .get(sym_magic.st_shndx)
+        .context("section containing magic missing")?;
+    let magic_file_offset =
+        (magic_offset - magic_section.sh_addr + magic_section.sh_offset) as usize;
+    let magic_val = u64::from_le_bytes(
+        buffer[magic_file_offset..magic_file_offset + 8]
+            .try_into()
+            .unwrap(),
+    );
 
     let declarations = vec![
         const_declaration!(pub PAYLOAD_OFFSET_FLAGV = sym_flagv.st_value),
         const_declaration!(pub PAYLOAD_OFFSET_COOKIE = sym_cookie.st_value),
+        const_declaration!(pub PAYLOAD_MAGIC = magic_val),
     ]
     .join("\n");
 
