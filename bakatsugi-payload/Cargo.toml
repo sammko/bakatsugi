@@ -7,11 +7,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.53"
-goblin = "0.4.3"
 static_assertions = "1.1.0"
+
+[dev-dependencies]
+goblin = "0.5.1"
 
 [build-dependencies]
 anyhow = "1.0.53"
-goblin = "0.4.3"
+goblin = "0.5.1"
 cargo-emit = "0.2.1"
 const-gen = "1.0.0"

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 bakatsugi-payload = { path = "../bakatsugi-payload" }
 anyhow = "1.0.53"
-goblin = "0.4.3"
+goblin = "0.5.1"
 nix = "0.23.1"
 proc-maps = "0.2.0"
 regex = "1.5.4"
