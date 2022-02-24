@@ -36,7 +36,7 @@ pub fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16])
 mod tests {
     use goblin::elf::Elf;
 
-    use crate::PAYLOAD_ELF;
+    use crate::{generate_payload, PAYLOAD_ELF};
 
     #[test]
     fn test_one_phdr() {
@@ -72,5 +72,11 @@ mod tests {
             2, sym_entry_nonsyscall.st_value,
             "entry_nonsyscall must be at offset 2"
         );
+    }
+
+    #[test]
+    fn test_payload_fits_in_page() {
+        let payload = generate_payload(0, 0, &[0; 16]);
+        assert!(payload.len() <= 4096);
     }
 }
