@@ -39,7 +39,7 @@ mod tests {
     use crate::{generate_payload, PAYLOAD_ELF};
 
     #[test]
-    fn test_one_phdr() {
+    fn one_phdr() {
         let elf = Elf::parse(PAYLOAD_ELF).expect("Payload is not valid ELF");
 
         assert_eq!(
@@ -50,7 +50,7 @@ mod tests {
     }
 
     #[test]
-    fn test_entry_points() {
+    fn entry_points() {
         let elf = Elf::parse(PAYLOAD_ELF).expect("Payload is not valid ELF");
         let mut sym_entry_syscall = None;
         let mut sym_entry_nonsyscall = None;
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    fn test_payload_fits_in_page() {
+    fn payload_fits_in_page() {
         let payload = generate_payload(0, 0, &[0; 16]);
         assert!(payload.len() <= 4096);
     }
