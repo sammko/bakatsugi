@@ -74,4 +74,29 @@ mod tests {
             "Payload ELF must contain exactly one Phdr"
         );
     }
+
+    #[test]
+    fn test_entry_points() {
+        let elf = Elf::parse(PAYLOAD_ELF).expect("Payload is not valid ELF");
+        let mut sym_entry_syscall = None;
+        let mut sym_entry_nonsyscall = None;
+        for sym in elf.syms.iter() {
+            match elf.strtab.get_at(sym.st_name) {
+                Some("entry_syscall") => sym_entry_syscall = Some(sym),
+                Some("entry_nonsyscall") => sym_entry_nonsyscall = Some(sym),
+                Some(_) | None => {}
+            }
+        }
+        let sym_entry_syscall = sym_entry_syscall.expect("Symbol entry_syscall missing");
+        let sym_entry_nonsyscall = sym_entry_nonsyscall.expect("Symbol entry_nonsyscall missing");
+
+        assert_eq!(
+            0, sym_entry_syscall.st_value,
+            "entry_syscall must be at offset 0"
+        );
+        assert_eq!(
+            2, sym_entry_nonsyscall.st_value,
+            "entry_nonsyscall must be at offset 2"
+        );
+    }
 }
