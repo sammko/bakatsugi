@@ -39,7 +39,7 @@ fn _init() {
     }
 }
 
-fn get_stage1_vma() -> Result<u64> {
+fn get_stage1_vma() -> Result<usize> {
     let pid = getpid();
     let maps = proc_maps::get_process_maps(pid.as_raw())?;
 
@@ -64,7 +64,7 @@ fn get_stage1_vma() -> Result<u64> {
                 // Clobber magic just in case for future patches
                 *p_rsp = 0;
                 let self_vmaddr = *p_rsp.offset(1);
-                return Ok(self_vmaddr);
+                return Ok(self_vmaddr as usize);
             }
         }
         rsp_aligned += 0x1000;
@@ -78,7 +78,7 @@ pub struct PayloadData {
     pub was_syscall: bool,
 }
 
-unsafe fn get_payload_data(stage1_vma: u64) -> Result<PayloadData> {
+unsafe fn get_payload_data(stage1_vma: usize) -> Result<PayloadData> {
     let cookie = slice::from_raw_parts((stage1_vma + PAYLOAD_OFFSET_COOKIE) as *const u8, 16);
     let flagv = *((stage1_vma + PAYLOAD_OFFSET_FLAGV) as *const u8);
     Ok(PayloadData {

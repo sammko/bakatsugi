@@ -186,8 +186,7 @@ fn main() -> Result<()> {
     }
 
     let cookie = generate_random_cookie();
-    let payload =
-        generate_payload(mmap_res, dlopen_vmaddr, &cookie).context("Failed to generate payload")?;
+    let payload = generate_payload(mmap_res, dlopen_vmaddr, &cookie);
 
     println!("Writing {} bytes", payload.len());
     process_vm_writev(

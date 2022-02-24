@@ -1,6 +1,6 @@
 #![feature(exit_status_error)]
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use const_gen::{const_declaration, CompileConst};
 use std::{env, fs, path::Path, process::Command};
 
@@ -12,12 +12,21 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     let buffer = fs::read(path_elf)?;
     let elf = goblin::elf::Elf::parse(&buffer)?;
 
+    if elf.program_headers.len() != 1 {
+        bail!("elf must contain exactly one phdr")
+    }
+    let phdr = elf.program_headers.get(0).unwrap();
+
+    let mut sym_self = None;
+    let mut sym_dlopen = None;
     let mut sym_cookie = None;
     let mut sym_flagv = None;
     let mut sym_magic = None;
 
     for sym in elf.syms.iter() {
         match elf.strtab.get_at(sym.st_name) {
+            Some("self") => sym_self = Some(sym),
+            Some("dlopen") => sym_dlopen = Some(sym),
             Some("cookie") => sym_cookie = Some(sym),
             Some("flagv") => sym_flagv = Some(sym),
             Some("magic") => sym_magic = Some(sym),
@@ -25,6 +34,8 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
         }
     }
 
+    let sym_self = sym_self.context("Symbol self missing")?;
+    let sym_dlopen = sym_dlopen.context("Symbol dlopen missing")?;
     let sym_cookie = sym_cookie.context("Symbol cookie missing")?;
     let sym_flagv = sym_flagv.context("Symbol flagv missing")?;
     let sym_magic = sym_magic.context("Symbol magic missing")?;
@@ -43,8 +54,12 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     );
 
     let declarations = vec![
-        const_declaration!(pub PAYLOAD_OFFSET_FLAGV = sym_flagv.st_value),
-        const_declaration!(pub PAYLOAD_OFFSET_COOKIE = sym_cookie.st_value),
+        const_declaration!(pub PAYLOAD_OFFSET_SELF = (sym_self.st_value as usize)),
+        const_declaration!(pub PAYLOAD_OFFSET_DLOPEN = (sym_dlopen.st_value as usize)),
+        const_declaration!(pub PAYLOAD_OFFSET_FLAGV = (sym_flagv.st_value as usize)),
+        const_declaration!(pub PAYLOAD_OFFSET_COOKIE = (sym_cookie.st_value as usize)),
+        const_declaration!(PAYLOAD_LOAD_P_OFFSET = (phdr.p_offset as usize)),
+        const_declaration!(PAYLOAD_LOAD_P_FILESZ = (phdr.p_filesz as usize)),
         const_declaration!(pub PAYLOAD_MAGIC = magic_val),
     ]
     .join("\n");
