@@ -3,6 +3,8 @@ use std::ops::Range;
 pub static PAYLOAD_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.elf"));
 include!(concat!(env!("OUT_DIR"), "/payload_constants.rs"));
 
+static_assertions::assert_eq_size!(usize, u64, *const u8);
+
 pub fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Vec<u8> {
     fn r(start: usize, size: usize) -> Range<usize> {
         Range {
