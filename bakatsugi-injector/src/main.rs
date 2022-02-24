@@ -1,13 +1,19 @@
-use std::ffi::OsString;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bakatsugi_injector::do_inject;
-use nix::unistd::Pid;
+use clap::Parser;
+use nix::{libc::pid_t, unistd::Pid};
+
+#[derive(Parser, Debug)]
+#[clap(version)]
+struct Args {
+    /// Target process ID
+    #[clap(short, long)]
+    pid: pid_t,
+}
 
 fn main() -> Result<()> {
-    let args: Vec<OsString> = std::env::args_os().collect();
-    let pid = Pid::from_raw(args[1].to_str().context("pid not utf8")?.parse::<i32>()?);
+    let args = Args::parse();
 
-    do_inject(pid)?;
+    do_inject(Pid::from_raw(args.pid))?;
     Ok(())
 }
