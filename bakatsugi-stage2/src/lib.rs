@@ -2,11 +2,11 @@
 #![feature(c_size_t)]
 
 use bakatsugi_payload::{PAYLOAD_MAGIC, PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
+use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
 use core::slice;
 use std::{
     arch::asm,
     fs,
-    io::Write,
     os::{
         raw::{c_size_t, c_ssize_t},
         unix::net::{SocketAddr, UnixStream},
@@ -101,6 +101,7 @@ fn find_load_bias(self_exe: &Elf) -> Result<u64> {
     Ok(entry_vma - entry_addr)
 }
 
+#[allow(dead_code)]
 fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     // hmm maybe we should be doing this from the outside instead
     let data = fs::read("/proc/self/exe")?;
@@ -169,9 +170,16 @@ fn init() -> Result<()> {
 
     let addr = SocketAddr::from_abstract_namespace(&data.cookie)?;
     let mut sock = UnixStream::connect_addr(&addr)?;
-    sock.write_all(b"Hello")?;
 
-    patch_reloc("write", fakewrite as usize)?;
+    loop {
+        let msg_in = MessageItoT::recv(&mut sock)?;
+        match msg_in {
+            MessageItoT::Ping(x) => {
+                MessageTtoI::Pong(x).send(&mut sock)?;
+            }
+            MessageItoT::Quit => break,
+        }
+    }
 
     Ok(())
 }

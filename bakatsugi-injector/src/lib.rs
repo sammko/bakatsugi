@@ -6,7 +6,7 @@
 use std::{
     ffi::{c_void, CStr},
     fs::{self, File},
-    io::{IoSlice, Read, Write},
+    io::{IoSlice, Write},
     mem,
     net::Shutdown,
     os::unix::{
@@ -19,6 +19,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use bakatsugi_payload::generate_payload;
+use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
 use goblin::elf::Elf;
 use nix::{
     libc::{
@@ -244,8 +245,16 @@ pub fn do_inject(pid: Pid) -> Result<()> {
         .context("send fd failed")?;
 
     close(bakatsugi_memfd).context("Failed to close memfd")?;
-
     socket.shutdown(Shutdown::Both).context("shutdown failed")?;
+
+    println!("Waiting for stage2 connection");
+    let mut socket = accept_target_connection(&listener, pid)?;
+    drop(listener);
+
+    MessageItoT::Ping(33).send(&mut socket)?;
+    let msg = MessageTtoI::recv(&mut socket)?;
+    println!("recvd from stage2: {:?}", msg);
+    MessageItoT::Quit.send(&mut socket)?;
 
     let waitstatus = wait::waitpid(pid, None).context("waitpid failed")?;
     if !matches!(waitstatus, WaitStatus::Stopped(_pid, Signal::SIGTRAP)) {
@@ -255,13 +264,6 @@ pub fn do_inject(pid: Pid) -> Result<()> {
     println!("Restoring and detaching");
     ptrace::setregs(pid, saved_regs).context("ptrace::setregs failed")?;
     ptrace::detach(pid, None).context("ptrace::detach failed")?;
-
-    println!("Waiting for stage2 connection");
-    let mut socket = accept_target_connection(&listener, pid)?;
-    drop(listener);
-    let mut s = String::new();
-    socket.read_to_string(&mut s)?;
-    println!("recvd from stage2: {}", &s);
 
     Ok(())
 }
