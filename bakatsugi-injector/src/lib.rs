@@ -252,8 +252,14 @@ pub fn do_inject(pid: Pid) -> Result<()> {
     drop(listener);
 
     MessageItoT::Ping(33).send(&mut socket)?;
-    let msg = MessageTtoI::recv(&mut socket)?;
-    println!("recvd from stage2: {:?}", msg);
+    let MessageTtoI::Pong(33) = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
+
+    MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(&mut socket)?;
+    let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
+
+    MessageItoT::PatchLib("write".to_string(), 32, "b".to_string()).send(&mut socket)?;
+    let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
+
     MessageItoT::Quit.send(&mut socket)?;
 
     let waitstatus = wait::waitpid(pid, None).context("waitpid failed")?;

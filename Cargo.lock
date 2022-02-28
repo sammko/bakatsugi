@@ -87,6 +87,7 @@ dependencies = [
  "bakatsugi-protocol",
  "ctor",
  "goblin",
+ "libloading",
  "nix",
  "proc-maps",
  "rand",

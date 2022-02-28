@@ -1,17 +1,16 @@
 #![feature(unix_socket_abstract)]
 #![feature(c_size_t)]
+#![feature(let_else)]
 
 use bakatsugi_payload::{PAYLOAD_MAGIC, PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
 use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
 use core::slice;
+use libloading::{Library, Symbol};
 use std::{
     arch::asm,
-    fs,
-    os::{
-        raw::{c_size_t, c_ssize_t},
-        unix::net::{SocketAddr, UnixStream},
-    },
-    ptr::slice_from_raw_parts,
+    collections::HashMap,
+    fs, mem,
+    os::unix::net::{SocketAddr, UnixStream},
 };
 
 use anyhow::{bail, Context, Result};
@@ -21,11 +20,10 @@ use goblin::{
     elf64::reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
 };
 use nix::{
-    libc::{self, c_int, c_void, getauxval, AT_ENTRY},
+    libc::{c_void, getauxval, AT_ENTRY},
     sys::mman::{mprotect, ProtFlags},
     unistd::getpid,
 };
-use rand::{prelude::SliceRandom, thread_rng};
 
 #[ctor]
 fn _init() {
@@ -147,21 +145,6 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     Ok(())
 }
 
-pub extern "C" fn fakewrite(fildes: c_int, buf: *const c_void, nbyte: c_size_t) -> c_ssize_t {
-    if nbyte > 0 {
-        let inp = unsafe { &*slice_from_raw_parts(buf as *const u8, nbyte) };
-        let mut tmp = inp.to_owned();
-        if inp[nbyte - 1] == b'\n' {
-            tmp[..nbyte - 1].shuffle(&mut thread_rng());
-        } else {
-            tmp.shuffle(&mut thread_rng());
-        }
-        unsafe { libc::write(fildes, tmp.as_ptr() as *const c_void, nbyte) }
-    } else {
-        0
-    }
-}
-
 fn init() -> Result<()> {
     let stage1_vma = get_stage1_vma()?;
     let data = unsafe { get_payload_data(stage1_vma)? };
@@ -171,6 +154,8 @@ fn init() -> Result<()> {
     let addr = SocketAddr::from_abstract_namespace(&data.cookie)?;
     let mut sock = UnixStream::connect_addr(&addr)?;
 
+    let mut dso_map = HashMap::new();
+
     loop {
         let msg_in = MessageItoT::recv(&mut sock)?;
         match msg_in {
@@ -178,8 +163,25 @@ fn init() -> Result<()> {
                 MessageTtoI::Pong(x).send(&mut sock)?;
             }
             MessageItoT::Quit => break,
+            MessageItoT::OpenDSO(id, path) => {
+                eprintln!("Opening patch lib: {}", path.to_string_lossy());
+                let lib = unsafe { Library::new(path)? };
+                dso_map.insert(id, lib);
+                MessageTtoI::Ok.send(&mut sock)?;
+            }
+            MessageItoT::PatchLib(fun, id, replacement) => {
+                let Some(lib) = dso_map.get(&id) else { bail!("Got bad lib id from injector") };
+                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes())? };
+                patch_reloc(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
+                MessageTtoI::Ok.send(&mut sock)?;
+            }
+            MessageItoT::PatchOwn(_, _, _) => todo!(),
         }
     }
+
+    // Forget the entire hashmap of libraries, this prevents them from
+    // getting dlclose'd by the Drop impl.
+    mem::forget(dso_map);
 
     Ok(())
 }

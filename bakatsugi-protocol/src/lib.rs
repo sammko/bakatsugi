@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use bincode::{
     config, decode_from_std_read, encode_into_std_write,
     error::{DecodeError, EncodeError},
@@ -7,12 +9,16 @@ use bincode::{
 #[derive(Encode, Decode, Debug)]
 pub enum MessageItoT {
     Ping(u64),
+    OpenDSO(i32, PathBuf),
+    PatchLib(String, i32, String),
+    PatchOwn(String, i32, String),
     Quit,
 }
 
 #[derive(Encode, Decode, Debug)]
 pub enum MessageTtoI {
     Pong(u64),
+    Ok,
 }
 
 pub trait Net {
