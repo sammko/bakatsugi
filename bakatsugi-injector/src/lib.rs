@@ -12,9 +12,9 @@ use std::{
     os::unix::{
         net::SocketAddr,
         net::{SocketAncillary, UnixListener, UnixStream},
-        prelude::{FromRawFd, RawFd},
+        prelude::{AsRawFd, FromRawFd, RawFd},
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{bail, Context, Result};
@@ -144,7 +144,7 @@ fn accept_target_connection(listener: &UnixListener, pid: Pid) -> Result<UnixStr
     Ok(socket)
 }
 
-pub fn do_inject(pid: Pid) -> Result<()> {
+pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let bakatsugi_memfd = create_bakatsugi_memfd()?;
 
     ptrace::seize(pid, ptrace::Options::PTRACE_O_TRACESYSGOOD).context("ptrace::seize failed")?;
@@ -254,10 +254,21 @@ pub fn do_inject(pid: Pid) -> Result<()> {
     MessageItoT::Ping(33).send(&mut socket)?;
     let MessageTtoI::Pong(33) = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
 
-    MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(&mut socket)?;
+    // MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(&mut socket)?;
+    MessageItoT::RecvDSO(1).send(&mut socket)?;
+
+    let patchfd = fs::File::open(patchlib)?;
+    let mut ancillary_buffer = [0; 128];
+    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
+    ancillary.add_fds(&[patchfd.as_raw_fd()]);
+    socket
+        .send_vectored_with_ancillary(&[IoSlice::new(&[0])], &mut ancillary)
+        .context("send fd failed")?;
+    drop(patchfd);
+
     let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
 
-    MessageItoT::PatchLib("write".to_string(), 32, "b".to_string()).send(&mut socket)?;
+    MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(&mut socket)?;
     let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
 
     MessageItoT::Quit.send(&mut socket)?;

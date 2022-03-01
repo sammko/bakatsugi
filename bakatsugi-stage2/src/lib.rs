@@ -1,6 +1,7 @@
 #![feature(unix_socket_abstract)]
 #![feature(c_size_t)]
 #![feature(let_else)]
+#![feature(unix_socket_ancillary_data)]
 
 use bakatsugi_payload::{PAYLOAD_MAGIC, PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
 use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
@@ -9,8 +10,14 @@ use libloading::{Library, Symbol};
 use std::{
     arch::asm,
     collections::HashMap,
-    fs, mem,
-    os::unix::net::{SocketAddr, UnixStream},
+    fs,
+    io::IoSliceMut,
+    mem,
+    os::unix::net::{
+        AncillaryData::{ScmCredentials, ScmRights},
+        SocketAddr, SocketAncillary, UnixStream,
+    },
+    path::PathBuf,
 };
 
 use anyhow::{bail, Context, Result};
@@ -22,7 +29,7 @@ use goblin::{
 use nix::{
     libc::{c_void, getauxval, AT_ENTRY},
     sys::mman::{mprotect, ProtFlags},
-    unistd::getpid,
+    unistd::{close, getpid},
 };
 
 #[ctor]
@@ -167,6 +174,40 @@ fn init() -> Result<()> {
                 eprintln!("Opening patch lib: {}", path.to_string_lossy());
                 let lib = unsafe { Library::new(path)? };
                 dso_map.insert(id, lib);
+                MessageTtoI::Ok.send(&mut sock)?;
+            }
+            MessageItoT::RecvDSO(id) => {
+                let mut ancillary_buffer = [0; 128];
+                let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
+                sock.recv_vectored_with_ancillary(
+                    &mut [IoSliceMut::new(&mut [0])],
+                    &mut ancillary,
+                )?;
+                let mut rfd = None;
+                for message in ancillary.messages() {
+                    match message {
+                        Ok(data) => match data {
+                            ScmRights(rights) => {
+                                for fd in rights {
+                                    eprintln!("Got fd: {}", fd);
+                                    rfd = Some(fd);
+                                }
+                            }
+                            ScmCredentials(_) => {
+                                eprintln!("Ignore ScmCredentials message");
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("Ignore: {:?}", e);
+                        }
+                    }
+                }
+                let Some(fd) = rfd else { bail!("Did not receive fd after RecvDSO") };
+                let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
+                eprintln!("Opening patch lib: {}", path.to_string_lossy());
+                let lib = unsafe { Library::new(path)? };
+                dso_map.insert(id, lib);
+                close(fd)?;
                 MessageTtoI::Ok.send(&mut sock)?;
             }
             MessageItoT::PatchLib(fun, id, replacement) => {

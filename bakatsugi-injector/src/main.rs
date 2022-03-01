@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use bakatsugi_injector::do_inject;
 use clap::Parser;
@@ -9,11 +11,13 @@ struct Args {
     /// Target process ID
     #[clap(short, long)]
     pid: pid_t,
+
+    patchlib: PathBuf,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    do_inject(Pid::from_raw(args.pid))?;
+    do_inject(Pid::from_raw(args.pid), &args.patchlib)?;
     Ok(())
 }
