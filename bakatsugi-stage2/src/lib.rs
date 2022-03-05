@@ -152,8 +152,8 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     Ok(())
 }
 
-fn patch_own_fn(name: &str, replacement_fn: usize) -> Result<()> {
-    let data = fs::read("/proc/self/exe")?;
+fn patch_own_fn(name: &str, replacement_fn: usize, debug_elf: &str) -> Result<()> {
+    let data = fs::read(debug_elf)?;
     let elf = Elf::parse(&data)?;
 
     let target_function = elf
@@ -225,6 +225,7 @@ fn init() -> Result<()> {
     let mut sock = UnixStream::connect_addr(&addr)?;
 
     let mut dso_map = HashMap::new();
+    let mut debug_elf_path: String = "/proc/self/exe".to_string();
 
     loop {
         let msg_in = MessageItoT::recv(&mut sock)?;
@@ -257,7 +258,16 @@ fn init() -> Result<()> {
             MessageItoT::PatchOwn(fun, id, replacement) => {
                 let Some(lib) = dso_map.get(&id) else { bail! ("Got bad lib id from injector") };
                 let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes())? };
-                patch_own_fn(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
+                patch_own_fn(
+                    &fun,
+                    unsafe { fptr.into_raw() }.into_raw() as usize,
+                    &debug_elf_path,
+                )?;
+                MessageTtoI::Ok.send(&mut sock)?;
+            }
+            MessageItoT::RecvDebugElf => {
+                let fd = receive_fd(&sock)?;
+                debug_elf_path = format!("/proc/self/fd/{}", fd);
                 MessageTtoI::Ok.send(&mut sock)?;
             }
         }

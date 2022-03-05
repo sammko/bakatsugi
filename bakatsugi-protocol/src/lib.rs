@@ -13,6 +13,7 @@ pub enum MessageItoT {
     RecvDSO(i32),
     PatchLib(String, i32, String),
     PatchOwn(String, i32, String),
+    RecvDebugElf,
     Quit,
 }
 

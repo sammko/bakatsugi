@@ -13,11 +13,18 @@ struct Args {
     pid: pid_t,
 
     patchlib: PathBuf,
+
+    #[clap(short, long)]
+    debugelf: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    do_inject(Pid::from_raw(args.pid), &args.patchlib)?;
+    do_inject(
+        Pid::from_raw(args.pid),
+        &args.patchlib,
+        args.debugelf.as_deref(),
+    )?;
     Ok(())
 }

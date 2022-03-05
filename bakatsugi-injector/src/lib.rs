@@ -153,7 +153,7 @@ fn send_fd(fd: i32, sock: &UnixStream) -> Result<()> {
     Ok(())
 }
 
-fn handle_stage2(socket: &mut UnixStream, patchlib: &Path) -> Result<()> {
+fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Path>) -> Result<()> {
     MessageItoT::Ping(33).send(socket)?;
     let MessageTtoI::Pong(33) = MessageTtoI::recv(socket)? else { bail!("BAD") };
 
@@ -166,7 +166,17 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path) -> Result<()> {
 
     let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
 
-    MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(socket)?;
+    if let Some(debugpath) = debugelf {
+        MessageItoT::RecvDebugElf.send(socket)?;
+        let debugfd = fs::File::open(debugpath)?;
+        send_fd(debugfd.as_raw_fd(), socket)?;
+        drop(debugfd);
+
+        let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+    }
+
+    // MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(socket)?;
+    MessageItoT::PatchOwn("volam".to_string(), 1, "b".to_string()).send(socket)?;
     let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
 
     MessageItoT::Quit.send(socket)?;
@@ -174,7 +184,7 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
+pub fn do_inject(pid: Pid, patchlib: &Path, debugelf: Option<&Path>) -> Result<()> {
     let bakatsugi_memfd = create_bakatsugi_memfd()?;
 
     ptrace::seize(pid, ptrace::Options::PTRACE_O_TRACESYSGOOD).context("ptrace::seize failed")?;
@@ -274,7 +284,7 @@ pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let mut socket = accept_target_connection(&listener, pid)?;
     drop(listener);
 
-    match handle_stage2(&mut socket, patchlib) {
+    match handle_stage2(&mut socket, patchlib, debugelf) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("stage2 failed: {}", e)
