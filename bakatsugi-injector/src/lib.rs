@@ -153,6 +153,27 @@ fn send_fd(fd: i32, sock: &UnixStream) -> Result<()> {
     Ok(())
 }
 
+fn handle_stage2(socket: &mut UnixStream, patchlib: &Path) -> Result<()> {
+    MessageItoT::Ping(33).send(socket)?;
+    let MessageTtoI::Pong(33) = MessageTtoI::recv(socket)? else { bail!("BAD") };
+
+    // MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(socket)?;
+    MessageItoT::RecvDSO(1).send(socket)?;
+
+    let patchfd = fs::File::open(patchlib)?;
+    send_fd(patchfd.as_raw_fd(), socket)?;
+    drop(patchfd);
+
+    let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+
+    MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(socket)?;
+    let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+
+    MessageItoT::Quit.send(socket)?;
+
+    Ok(())
+}
+
 pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let bakatsugi_memfd = create_bakatsugi_memfd()?;
 
@@ -253,22 +274,12 @@ pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let mut socket = accept_target_connection(&listener, pid)?;
     drop(listener);
 
-    MessageItoT::Ping(33).send(&mut socket)?;
-    let MessageTtoI::Pong(33) = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
-
-    // MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(&mut socket)?;
-    MessageItoT::RecvDSO(1).send(&mut socket)?;
-
-    let patchfd = fs::File::open(patchlib)?;
-    send_fd(patchfd.as_raw_fd(), &socket)?;
-    drop(patchfd);
-
-    let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
-
-    MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(&mut socket)?;
-    let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
-
-    MessageItoT::Quit.send(&mut socket)?;
+    match handle_stage2(&mut socket, patchlib) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("stage2 failed: {}", e)
+        }
+    }
 
     let waitstatus = wait::waitpid(pid, None).context("waitpid failed")?;
     if !matches!(waitstatus, WaitStatus::Stopped(_pid, Signal::SIGTRAP)) {
