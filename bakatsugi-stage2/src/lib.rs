@@ -189,6 +189,32 @@ fn patch_own_fn(name: &str, replacement_fn: usize) -> Result<()> {
     Ok(())
 }
 
+fn receive_fd(sock: &UnixStream) -> Result<i32> {
+    let mut ancillary_buffer = [0; 128];
+    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
+    sock.recv_vectored_with_ancillary(&mut [IoSliceMut::new(&mut [0])], &mut ancillary)?;
+    let mut rfd = None;
+    for message in ancillary.messages() {
+        match message {
+            Ok(data) => match data {
+                ScmRights(rights) => {
+                    for fd in rights {
+                        eprintln!("Got fd: {}", fd);
+                        rfd = Some(fd);
+                    }
+                }
+                ScmCredentials(_) => {
+                    eprintln!("Ignore ScmCredentials message");
+                }
+            },
+            Err(e) => {
+                eprintln!("Ignore: {:?}", e);
+            }
+        }
+    }
+    rfd.context("Did not receive fd")
+}
+
 fn init() -> Result<()> {
     let stage1_vma = get_stage1_vma()?;
     let data = unsafe { get_payload_data(stage1_vma)? };
@@ -214,32 +240,7 @@ fn init() -> Result<()> {
                 MessageTtoI::Ok.send(&mut sock)?;
             }
             MessageItoT::RecvDSO(id) => {
-                let mut ancillary_buffer = [0; 128];
-                let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
-                sock.recv_vectored_with_ancillary(
-                    &mut [IoSliceMut::new(&mut [0])],
-                    &mut ancillary,
-                )?;
-                let mut rfd = None;
-                for message in ancillary.messages() {
-                    match message {
-                        Ok(data) => match data {
-                            ScmRights(rights) => {
-                                for fd in rights {
-                                    eprintln!("Got fd: {}", fd);
-                                    rfd = Some(fd);
-                                }
-                            }
-                            ScmCredentials(_) => {
-                                eprintln!("Ignore ScmCredentials message");
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("Ignore: {:?}", e);
-                        }
-                    }
-                }
-                let Some(fd) = rfd else { bail!("Did not receive fd after RecvDSO") };
+                let fd = receive_fd(&sock)?;
                 let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
                 eprintln!("Opening patch lib: {}", path.to_string_lossy());
                 let lib = unsafe { Library::new(path)? };
