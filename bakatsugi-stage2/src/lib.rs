@@ -152,6 +152,43 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     Ok(())
 }
 
+fn patch_own_fn(name: &str, replacement_fn: usize) -> Result<()> {
+    let data = fs::read("/proc/self/exe")?;
+    let elf = Elf::parse(&data)?;
+
+    let target_function = elf
+        .syms
+        .iter()
+        .find(|s| elf.strtab.get_at(s.st_name) == Some(name))
+        .context(
+            "Could not find symbol for target function. Does your binary have debug symbols?",
+        )?;
+
+    let load_bias = find_load_bias(&elf)?;
+    let actual_target = load_bias + target_function.st_value;
+    eprintln!("target at: {:x}", actual_target);
+    eprintln!("replacement at: {:x}", replacement_fn);
+
+    let mut trampoline = b"\x48\xb8\x00\x00\x00\x00\x00\x00\x00\x10\xff\xe0".to_vec();
+    trampoline[2..10].copy_from_slice(&replacement_fn.to_le_bytes());
+
+    eprintln!("trampoline: {:x?}", trampoline);
+
+    unsafe {
+        // TODO we need to watch out for page borders and functions shorter than the trampoline.
+        mprotect(
+            (actual_target & 0xfffffffffffff000) as *mut c_void,
+            4096,
+            ProtFlags::PROT_READ | ProtFlags::PROT_WRITE | ProtFlags::PROT_EXEC,
+        )?;
+        let tgt_buf = slice::from_raw_parts_mut(actual_target as *mut u8, trampoline.len());
+        tgt_buf.copy_from_slice(&trampoline);
+        // TODO mprotect back
+    }
+
+    Ok(())
+}
+
 fn init() -> Result<()> {
     let stage1_vma = get_stage1_vma()?;
     let data = unsafe { get_payload_data(stage1_vma)? };
@@ -216,7 +253,12 @@ fn init() -> Result<()> {
                 patch_reloc(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
                 MessageTtoI::Ok.send(&mut sock)?;
             }
-            MessageItoT::PatchOwn(_, _, _) => todo!(),
+            MessageItoT::PatchOwn(fun, id, replacement) => {
+                let Some(lib) = dso_map.get(&id) else { bail! ("Got bad lib id from injector") };
+                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes())? };
+                patch_own_fn(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
+                MessageTtoI::Ok.send(&mut sock)?;
+            }
         }
     }
 
