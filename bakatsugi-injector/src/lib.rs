@@ -6,7 +6,7 @@
 use std::{
     ffi::{c_void, CStr},
     fs::{self, File},
-    io::{IoSlice, Write},
+    io::{IoSlice, Read, Seek, Write},
     mem,
     net::Shutdown,
     os::unix::{
@@ -15,6 +15,7 @@ use std::{
         prelude::{AsRawFd, FromRawFd, RawFd},
     },
     path::{Path, PathBuf},
+    str,
 };
 
 use anyhow::{bail, Context, Result};
@@ -153,14 +154,68 @@ fn send_fd(fd: i32, sock: &UnixStream) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+enum PatchSpec<'a> {
+    Own { old: &'a str, new: &'a str },
+    Lib { old: &'a str, new: &'a str },
+}
+
+fn parse_patchspec(patchlib: &[u8]) -> Result<Vec<PatchSpec>> {
+    let elf = Elf::parse(patchlib)?;
+    let mut r = Vec::new();
+    let mut section = None;
+    for shdr in &elf.section_headers {
+        if elf.shdr_strtab.get_at(shdr.sh_name) == Some("bakatsugi") {
+            section = Some(shdr);
+        }
+    }
+    let Some(section) = section else { bail!("Could not find metadata section in patch lib") };
+    let range = section
+        .file_range()
+        .context("Section has no range in file")?;
+    let section_data = &patchlib[range];
+    if section_data[section_data.len() - 1] != 0 {
+        bail!("Not null terminated");
+    }
+    let section_data = &section_data[..section_data.len() - 1];
+    for line in section_data.split(|&b| b == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        r.push(match line[0] {
+            flag @ (b'O' | b'L') => {
+                if let [l, r] = &str::from_utf8(&line[1..])?
+                    .split('.')
+                    .collect::<Vec<&str>>()[..]
+                {
+                    match flag {
+                        b'O' => PatchSpec::Own { old: l, new: r },
+                        b'L' => PatchSpec::Lib { old: l, new: r },
+                        _ => unreachable!(),
+                    }
+                } else {
+                    bail!("Malformed line in patchspec")
+                }
+            }
+            _ => bail!("Bad flag in patchspec: {:x}", line[0]),
+        });
+    }
+    Ok(r)
+}
+
 fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Path>) -> Result<()> {
+    let mut patchfd = fs::File::open(patchlib).context("Could not open patchlib")?;
+    let mut patchelf = Vec::new();
+    patchfd
+        .read_to_end(&mut patchelf)
+        .context("Could not read patchlib")?;
+    patchfd.rewind().context("Could not rewind patchlib")?;
+    let patches = parse_patchspec(&patchelf).context("Could not parse patchspec")?;
+
     MessageItoT::Ping(33).send(socket)?;
     let MessageTtoI::Pong(33) = MessageTtoI::recv(socket)? else { bail!("BAD") };
 
-    // MessageItoT::OpenDSO(32, PathBuf::from("/tmp/libx.so")).send(socket)?;
     MessageItoT::RecvDSO(1).send(socket)?;
-
-    let patchfd = fs::File::open(patchlib)?;
     send_fd(patchfd.as_raw_fd(), socket)?;
     drop(patchfd);
 
@@ -175,9 +230,19 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
         let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
     }
 
-    // MessageItoT::PatchLib("write".to_string(), 1, "b".to_string()).send(socket)?;
-    MessageItoT::PatchOwn("volam".to_string(), 1, "b".to_string()).send(socket)?;
-    let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+    for patch in patches {
+        println!("Patch: {:?}", patch);
+        match patch {
+            PatchSpec::Own { old, new } => {
+                MessageItoT::PatchOwn(old.to_string(), 1, new.to_string())
+            }
+            PatchSpec::Lib { old, new } => {
+                MessageItoT::PatchLib(old.to_string(), 1, new.to_string())
+            }
+        }
+        .send(socket)?;
+        let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+    }
 
     MessageItoT::Quit.send(socket)?;
 
