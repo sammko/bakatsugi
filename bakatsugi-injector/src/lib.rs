@@ -144,6 +144,15 @@ fn accept_target_connection(listener: &UnixListener, pid: Pid) -> Result<UnixStr
     Ok(socket)
 }
 
+fn send_fd(fd: i32, sock: &UnixStream) -> Result<()> {
+    let mut ancillary_buffer = [0; 128];
+    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
+    ancillary.add_fds(&[fd]);
+    sock.send_vectored_with_ancillary(&[IoSlice::new(&[0])], &mut ancillary)
+        .context("send fd failed")?;
+    Ok(())
+}
+
 pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let bakatsugi_memfd = create_bakatsugi_memfd()?;
 
@@ -236,14 +245,7 @@ pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     let socket = accept_target_connection(&listener, pid)?;
 
     println!("Sending fd");
-
-    let mut ancillary_buffer = [0; 128];
-    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
-    ancillary.add_fds(&[bakatsugi_memfd]);
-    socket
-        .send_vectored_with_ancillary(&[IoSlice::new(&[0])], &mut ancillary)
-        .context("send fd failed")?;
-
+    send_fd(bakatsugi_memfd, &socket)?;
     close(bakatsugi_memfd).context("Failed to close memfd")?;
     socket.shutdown(Shutdown::Both).context("shutdown failed")?;
 
@@ -258,12 +260,7 @@ pub fn do_inject(pid: Pid, patchlib: &Path) -> Result<()> {
     MessageItoT::RecvDSO(1).send(&mut socket)?;
 
     let patchfd = fs::File::open(patchlib)?;
-    let mut ancillary_buffer = [0; 128];
-    let mut ancillary = SocketAncillary::new(&mut ancillary_buffer);
-    ancillary.add_fds(&[patchfd.as_raw_fd()]);
-    socket
-        .send_vectored_with_ancillary(&[IoSlice::new(&[0])], &mut ancillary)
-        .context("send fd failed")?;
+    send_fd(patchfd.as_raw_fd(), &socket)?;
     drop(patchfd);
 
     let MessageTtoI::Ok = MessageTtoI::recv(&mut socket)? else { bail!("BAD") };
