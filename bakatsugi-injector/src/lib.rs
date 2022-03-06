@@ -163,13 +163,17 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
     let patches = parse_patchspec(&patchelf).context("Could not parse patchspec")?;
 
     MessageItoT::Ping(33).send(socket)?;
-    let MessageTtoI::Pong(33) = MessageTtoI::recv(socket)? else { bail!("BAD") };
+    if MessageTtoI::recv(socket)? != MessageTtoI::Pong(33) {
+        bail!("Invalid response from target stage2");
+    }
 
     MessageItoT::RecvDSO(1).send(socket)?;
     send_fd(patchfd.as_raw_fd(), socket)?;
     drop(patchfd);
 
-    let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+    if MessageTtoI::recv(socket)? != MessageTtoI::Ok {
+        bail!("Invalid response from target stage2");
+    }
 
     if let Some(debugpath) = debugelf {
         MessageItoT::RecvDebugElf.send(socket)?;
@@ -177,7 +181,9 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
         send_fd(debugfd.as_raw_fd(), socket)?;
         drop(debugfd);
 
-        let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+        if MessageTtoI::recv(socket)? != MessageTtoI::Ok {
+            bail!("Invalid response from target stage2");
+        }
     }
 
     for patch in patches {
@@ -191,7 +197,9 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
             }
         }
         .send(socket)?;
-        let MessageTtoI::Ok = MessageTtoI::recv(socket)? else { bail!("BAD") };
+        if MessageTtoI::recv(socket)? != MessageTtoI::Ok {
+            bail!("Invalid response from target stage2");
+        }
     }
 
     MessageItoT::Quit.send(socket)?;

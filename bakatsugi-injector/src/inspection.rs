@@ -51,7 +51,7 @@ pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
         // glibc 2.34 removes __libc_dlopen_mode but instead
         // libdl is merged in, including normal dlopen. Same signature,
         // don't care which one it is.
-        if let Some("__libc_dlopen_mode" | "dlopen") = name {
+        if matches!(name, Some("__libc_dlopen_mode" | "dlopen")) {
             return Ok(sym.st_value - map.offset as u64 + map.start() as u64);
         }
     }

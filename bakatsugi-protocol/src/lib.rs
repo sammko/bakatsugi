@@ -6,7 +6,7 @@ use bincode::{
     Decode, Encode,
 };
 
-#[derive(Encode, Decode, Debug)]
+#[derive(PartialEq, Eq, Encode, Decode, Debug)]
 pub enum MessageItoT {
     Ping(u64),
     OpenDSO(i32, PathBuf),
@@ -17,7 +17,7 @@ pub enum MessageItoT {
     Quit,
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(PartialEq, Eq, Encode, Decode, Debug)]
 pub enum MessageTtoI {
     Pong(u64),
     Ok,
