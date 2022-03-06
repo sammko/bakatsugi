@@ -30,18 +30,18 @@ fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
     bail!("No mapping matches known libc names")
 }
 
-fn get_mapfile(pid: Pid, maprange: &MapRange) -> PathBuf {
+fn get_mapfile(pid: Pid, start: usize, size: usize) -> PathBuf {
     PathBuf::from(format!(
         "/proc/{}/map_files/{:x}-{:x}",
         pid.as_raw(),
-        maprange.start(),
-        maprange.start() + maprange.size()
+        start,
+        start + size
     ))
 }
 
 pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
     let map = get_libc_text_maprange(pid).context("Failed to find libc .text mapping")?;
-    let libc = fs::read(get_mapfile(pid, &map))
+    let libc = fs::read(get_mapfile(pid, map.start(), map.size()))
         .context("Failed to load libc elf from /proc/N/map_files")?;
     let elf = Elf::parse(&libc).context("Failed to parse libc image as elf")?;
 
@@ -56,4 +56,25 @@ pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
         }
     }
     bail!("Could not find dlopen");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mapfile() {
+        assert_eq!(
+            get_mapfile(
+                Pid::from_raw(1),
+                0x7fcb02618000,
+                0x7fcb02621000 - 0x7fcb02618000
+            ),
+            PathBuf::from("/proc/1/map_files/7fcb02618000-7fcb02621000")
+        );
+        assert_eq!(
+            get_mapfile(Pid::from_raw(123), 4096, 4096),
+            PathBuf::from("/proc/123/map_files/1000-2000")
+        );
+    }
 }
