@@ -3,6 +3,8 @@
 #![feature(unix_socket_abstract)]
 #![feature(unix_socket_ancillary_data)]
 
+mod inspection;
+
 use std::{
     ffi::{c_void, CStr},
     fs::{self, File},
@@ -14,7 +16,7 @@ use std::{
         net::{SocketAncillary, UnixListener, UnixStream},
         prelude::{AsRawFd, FromRawFd, RawFd},
     },
-    path::{Path, PathBuf},
+    path::Path,
     str,
 };
 
@@ -35,61 +37,9 @@ use nix::{
     },
     unistd::{close, Pid},
 };
-use proc_maps::MapRange;
 use rand::{distributions::Alphanumeric, Rng};
-use regex::Regex;
 
-fn get_libc_text_maprange(pid: Pid) -> Result<MapRange> {
-    let re = Regex::new(r"^libc(-[0-9.]+)?\.so[0-9.]*$").unwrap();
-    for map in proc_maps::get_process_maps(pid.as_raw())
-        .context("Failed to retrieve memory map of target")?
-    {
-        // ASSUMPTION: libc contains only one executable mapping,
-        // corresponding to the LOAD phdr containing .text.
-        if !map.is_exec() {
-            continue;
-        }
-        if let Some(basename) = map.filename().and_then(|f| f.file_name()) {
-            match basename.to_str() {
-                Some(s) => {
-                    if re.is_match(s) {
-                        return Ok(map);
-                    }
-                }
-                None => continue,
-            }
-        }
-    }
-    bail!("No mapping matches known libc names")
-}
-
-fn get_mapfile(pid: Pid, maprange: &MapRange) -> PathBuf {
-    PathBuf::from(format!(
-        "/proc/{}/map_files/{:x}-{:x}",
-        pid.as_raw(),
-        maprange.start(),
-        maprange.start() + maprange.size()
-    ))
-}
-
-fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
-    let map = get_libc_text_maprange(pid).context("Failed to find libc .text mapping")?;
-    let libc = fs::read(get_mapfile(pid, &map))
-        .context("Failed to load libc elf from /proc/N/map_files")?;
-    let elf = Elf::parse(&libc).context("Failed to parse libc image as elf")?;
-
-    let dynstrtab = elf.dynstrtab;
-    for sym in elf.dynsyms.iter() {
-        let name = dynstrtab.get_at(sym.st_name);
-        // glibc 2.34 removes __libc_dlopen_mode but instead
-        // libdl is merged in, including normal dlopen. Same signature,
-        // don't care which one it is.
-        if let Some("__libc_dlopen_mode" | "dlopen") = name {
-            return Ok(sym.st_value - map.offset as u64 + map.start() as u64);
-        }
-    }
-    bail!("Could not find dlopen");
-}
+use inspection::get_dlopen_vmaddr;
 
 fn generate_random_cookie() -> [u8; 16] {
     let mut rng = rand::thread_rng();
