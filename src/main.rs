@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use bakatsugi_injector::do_inject;
+use bakatsugi::do_inject;
 use clap::Parser;
 use nix::{libc::pid_t, unistd::Pid};
 
