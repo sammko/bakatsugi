@@ -1,6 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::{fs, io::ErrorKind, path::PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use goblin::elf::Elf;
 use nix::unistd::Pid;
 use proc_maps::MapRange;
@@ -41,8 +41,25 @@ fn get_mapfile(pid: Pid, start: usize, size: usize) -> PathBuf {
 
 pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
     let map = get_libc_text_maprange(pid).context("Failed to find libc .text mapping")?;
-    let libc = fs::read(get_mapfile(pid, map.start(), map.size()))
-        .context("Failed to load libc elf from /proc/N/map_files")?;
+
+    let libc_mapfile = get_mapfile(pid, map.start(), map.size());
+    let libc = match fs::read(&libc_mapfile) {
+        Ok(f) => f,
+        Err(e) => match e.kind() {
+            ErrorKind::PermissionDenied => {
+                let filename = map.filename().context("MapRange does not have filename")?;
+                eprintln!(
+                    "Failed to open libc from {:?}, falling back to {:?}. CAP_SYS_ADMIN is required to access map_files, despite having permission to ptrace the target. {}",
+                    &libc_mapfile,
+                    filename,
+                    e
+                );
+                fs::read(filename).context(format!("Could not open libc from {:?}", filename))?
+            }
+            _ => return Err(anyhow!(e)),
+        },
+    };
+
     let elf = Elf::parse(&libc).context("Failed to parse libc image as elf")?;
 
     let dynstrtab = elf.dynstrtab;
