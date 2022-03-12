@@ -40,7 +40,7 @@ fn _init() {
     }
     match init() {
         Ok(_) => {}
-        Err(e) => eprintln!("=== PATCH FAILED: {} ===", e),
+        Err(e) => eprintln!("=== PATCH FAILED ===\n{:?}\n====================", e),
     }
 }
 
@@ -236,7 +236,7 @@ fn init() -> Result<()> {
             MessageItoT::Quit => break,
             MessageItoT::OpenDSO(id, path) => {
                 eprintln!("Opening patch lib: {}", path.to_string_lossy());
-                let lib = unsafe { Library::new(path)? };
+                let lib = unsafe { Library::new(path) }.context("Failed to open library")?;
                 dso_map.insert(id, lib);
                 MessageTtoI::Ok.send(&mut sock)?;
             }
@@ -244,20 +244,22 @@ fn init() -> Result<()> {
                 let fd = receive_fd(&sock)?;
                 let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
                 eprintln!("Opening patch lib: {}", path.to_string_lossy());
-                let lib = unsafe { Library::new(path)? };
+                let lib = unsafe { Library::new(path) }.context("Failed to open library")?;
                 dso_map.insert(id, lib);
                 close(fd)?;
                 MessageTtoI::Ok.send(&mut sock)?;
             }
             MessageItoT::PatchLib(fun, id, replacement) => {
                 let Some(lib) = dso_map.get(&id) else { bail!("Got bad lib id from injector") };
-                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes())? };
+                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes()) }
+                    .context("Failed to lookup symbol")?;
                 patch_reloc(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
                 MessageTtoI::Ok.send(&mut sock)?;
             }
             MessageItoT::PatchOwn(fun, id, replacement) => {
                 let Some(lib) = dso_map.get(&id) else { bail! ("Got bad lib id from injector") };
-                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes())? };
+                let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes()) }
+                    .context("Failed to lookup symbol")?;
                 patch_own_fn(
                     &fun,
                     unsafe { fptr.into_raw() }.into_raw() as usize,
