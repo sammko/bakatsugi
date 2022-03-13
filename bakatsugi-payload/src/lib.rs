@@ -5,7 +5,12 @@ include!(concat!(env!("OUT_DIR"), "/payload_constants.rs"));
 
 static_assertions::assert_eq_size!(usize, u64, *const u8);
 
-pub fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16]) -> Vec<u8> {
+pub fn generate_payload(
+    self_vmaddr: u64,
+    dlopen_vmaddr: u64,
+    cookie: &[u8; 16],
+    close_stage2: bool,
+) -> Vec<u8> {
     fn r(start: usize, size: usize) -> Range<usize> {
         Range {
             start,
@@ -16,12 +21,18 @@ pub fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16])
     let range_self = r(PAYLOAD_OFFSET_SELF, 8);
     let range_dlopen = r(PAYLOAD_OFFSET_DLOPEN, 8);
     let range_cookie = r(PAYLOAD_OFFSET_COOKIE, 16);
+    let range_close_stage2 = r(PAYLOAD_OFFSET_CLOSE_STAGE2, 1);
 
-    let actual_end = [&range_self, &range_dlopen, &range_cookie]
-        .iter()
-        .map(|r| r.end)
-        .max()
-        .unwrap();
+    let actual_end = [
+        &range_self,
+        &range_dlopen,
+        &range_cookie,
+        &range_close_stage2,
+    ]
+    .iter()
+    .map(|r| r.end)
+    .max()
+    .unwrap();
 
     let mut payload = PAYLOAD_ELF[r(PAYLOAD_LOAD_P_OFFSET, PAYLOAD_LOAD_P_FILESZ)].to_owned();
     payload.resize(actual_end, 0);
@@ -29,6 +40,7 @@ pub fn generate_payload(self_vmaddr: u64, dlopen_vmaddr: u64, cookie: &[u8; 16])
     payload[range_self].copy_from_slice(&self_vmaddr.to_le_bytes());
     payload[range_dlopen].copy_from_slice(&dlopen_vmaddr.to_le_bytes());
     payload[range_cookie].copy_from_slice(cookie);
+    payload[range_close_stage2].copy_from_slice(&[close_stage2 as u8]);
     payload
 }
 
@@ -76,7 +88,7 @@ mod tests {
 
     #[test]
     fn payload_fits_in_page() {
-        let payload = generate_payload(0, 0, &[0; 16]);
+        let payload = generate_payload(0, 0, &[0; 16], false);
         assert!(payload.len() <= 4096);
     }
 }

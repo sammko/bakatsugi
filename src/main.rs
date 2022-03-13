@@ -16,6 +16,14 @@ struct Args {
 
     #[clap(short, long)]
     debugelf: Option<PathBuf>,
+
+    /// Close patch libraries after dlopen in target
+    #[clap(long)]
+    close_dso: bool,
+
+    /// Close stage2 library after dlopen
+    #[clap(long)]
+    close_stage2: bool,
 }
 
 fn main() -> Result<()> {
@@ -25,6 +33,8 @@ fn main() -> Result<()> {
         Pid::from_raw(args.pid),
         &args.patchlib,
         args.debugelf.as_deref(),
+        args.close_stage2,
+        args.close_dso,
     )?;
     Ok(())
 }

@@ -85,7 +85,7 @@ int recv_fd(int sock) {
   return *p;
 }
 
-void payload_main(char *cookie) {
+void payload_main(char *cookie, int close_stage2) {
   int sock = connect_socket(cookie);
   if (sock == -1) {
     return;
@@ -116,5 +116,7 @@ void payload_main(char *cookie) {
 #endif
 
   my_dlopen(path, RTLD_LAZY);
-  my_syscall(SYS_close, fd);
+  if (close_stage2) {
+    my_syscall(SYS_close, fd);
+  }
 }

@@ -22,6 +22,7 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     let mut sym_cookie = None;
     let mut sym_flagv = None;
     let mut sym_magic = None;
+    let mut sym_close_stage2 = None;
 
     for sym in elf.syms.iter() {
         match elf.strtab.get_at(sym.st_name) {
@@ -30,6 +31,7 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
             Some("cookie") => sym_cookie = Some(sym),
             Some("flagv") => sym_flagv = Some(sym),
             Some("magic") => sym_magic = Some(sym),
+            Some("close_stage2") => sym_close_stage2 = Some(sym),
             Some(_) | None => {}
         }
     }
@@ -39,6 +41,7 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     let sym_cookie = sym_cookie.context("Symbol cookie missing")?;
     let sym_flagv = sym_flagv.context("Symbol flagv missing")?;
     let sym_magic = sym_magic.context("Symbol magic missing")?;
+    let sym_close_stage2 = sym_close_stage2.context("Symbol magic missing")?;
 
     let magic_offset = sym_magic.st_value;
     let magic_section = elf
@@ -58,6 +61,7 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
         const_declaration!(pub PAYLOAD_OFFSET_DLOPEN = (sym_dlopen.st_value as usize)),
         const_declaration!(pub PAYLOAD_OFFSET_FLAGV = (sym_flagv.st_value as usize)),
         const_declaration!(pub PAYLOAD_OFFSET_COOKIE = (sym_cookie.st_value as usize)),
+        const_declaration!(pub PAYLOAD_OFFSET_CLOSE_STAGE2 = (sym_close_stage2.st_value as usize)),
         const_declaration!(PAYLOAD_LOAD_P_OFFSET = (phdr.p_offset as usize)),
         const_declaration!(PAYLOAD_LOAD_P_FILESZ = (phdr.p_filesz as usize)),
         const_declaration!(pub PAYLOAD_MAGIC = magic_val),

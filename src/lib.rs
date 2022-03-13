@@ -153,7 +153,12 @@ fn parse_patchspec(patchlib: &[u8]) -> Result<Vec<PatchSpec>> {
     Ok(r)
 }
 
-fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Path>) -> Result<()> {
+fn handle_stage2(
+    socket: &mut UnixStream,
+    patchlib: &Path,
+    debugelf: Option<&Path>,
+    close_dso: bool,
+) -> Result<()> {
     let mut patchfd = fs::File::open(patchlib).context("Could not open patchlib")?;
     let mut patchelf = Vec::new();
     patchfd
@@ -167,7 +172,7 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
         bail!("Invalid response from target stage2");
     }
 
-    MessageItoT::RecvDSO(1).send(socket)?;
+    MessageItoT::RecvDSO(1, close_dso).send(socket)?;
     send_fd(patchfd.as_raw_fd(), socket)?;
     drop(patchfd);
 
@@ -207,7 +212,13 @@ fn handle_stage2(socket: &mut UnixStream, patchlib: &Path, debugelf: Option<&Pat
     Ok(())
 }
 
-pub fn do_inject(pid: Pid, patchlib: &Path, debugelf: Option<&Path>) -> Result<()> {
+pub fn do_inject(
+    pid: Pid,
+    patchlib: &Path,
+    debugelf: Option<&Path>,
+    close_stage2: bool,
+    close_dso: bool,
+) -> Result<()> {
     let bakatsugi_memfd = create_bakatsugi_memfd()?;
 
     ptrace::seize(pid, ptrace::Options::PTRACE_O_TRACESYSGOOD).context("ptrace::seize failed")?;
@@ -259,7 +270,7 @@ pub fn do_inject(pid: Pid, patchlib: &Path, debugelf: Option<&Path>) -> Result<(
     }
 
     let cookie = generate_random_cookie();
-    let payload = generate_payload(mmap_res, dlopen_vmaddr, &cookie);
+    let payload = generate_payload(mmap_res, dlopen_vmaddr, &cookie, close_stage2);
 
     println!("Writing {} bytes", payload.len());
     process_vm_writev(
@@ -307,7 +318,7 @@ pub fn do_inject(pid: Pid, patchlib: &Path, debugelf: Option<&Path>) -> Result<(
     let mut socket = accept_target_connection(&listener, pid)?;
     drop(listener);
 
-    match handle_stage2(&mut socket, patchlib, debugelf) {
+    match handle_stage2(&mut socket, patchlib, debugelf, close_dso) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("stage2 failed: {}", e)

@@ -240,13 +240,15 @@ fn init() -> Result<()> {
                 dso_map.insert(id, lib);
                 MessageTtoI::Ok.send(&mut sock)?;
             }
-            MessageItoT::RecvDSO(id) => {
+            MessageItoT::RecvDSO(id, should_close) => {
                 let fd = receive_fd(&sock)?;
                 let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
                 eprintln!("Opening patch lib: {}", path.to_string_lossy());
                 let lib = unsafe { Library::new(path) }.context("Failed to open library")?;
                 dso_map.insert(id, lib);
-                close(fd)?;
+                if should_close {
+                    close(fd)?;
+                }
                 MessageTtoI::Ok.send(&mut sock)?;
             }
             MessageItoT::PatchLib(fun, id, replacement) => {

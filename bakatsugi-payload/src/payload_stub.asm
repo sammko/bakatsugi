@@ -16,6 +16,7 @@ entry_nonsyscall:
     push    qword [rel magic]
 
     lea     rdi, [rel cookie]
+    mov     rsi, [rel close_stage2]
     call    payload_main
     int3
 
@@ -45,7 +46,8 @@ magic dq 0x68637450616b6142
 
 section .bss
 
+cookie resb 16
 self   resq 1
 dlopen resq 1
 flagv  resb 1
-cookie resb 16
+close_stage2 resb 1
