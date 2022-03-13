@@ -12,8 +12,10 @@ struct Args {
     #[clap(short, long)]
     pid: pid_t,
 
+    /// Patch library with embedded patchspec
     patchlib: PathBuf,
 
+    /// ELF file with external debug symbols
     #[clap(short, long)]
     debugelf: Option<PathBuf>,
 
