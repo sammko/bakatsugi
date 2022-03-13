@@ -88,25 +88,29 @@ impl CommandExt for Command {
     }
 }
 
-fn build_payload(out_dir: &str) -> Result<()> {
+fn build_payload(out_dir: &str, debug: bool) -> Result<()> {
     Command::new("nasm")
         .args(["src/payload_stub.asm", "-f", "elf64", "-o"])
         .arg(format!("{}/payload_stub.o", out_dir))
         .status_exit_ok()?;
 
+    let mut cc_flags = vec![
+        "-Os",
+        "-c",
+        "-fno-asynchronous-unwind-tables",
+        "-pedantic",
+        "-nostdlib",
+        "-Wall",
+        "-Wextra",
+        "-fPIC",
+        "-fno-stack-protector",
+    ];
+    if debug {
+        cc_flags.push("-DDBG");
+    }
     Command::new("gcc")
-        .args([
-            "-Os",
-            "-c",
-            "-fno-asynchronous-unwind-tables",
-            "-pedantic",
-            "-nostdlib",
-            "-Wall",
-            "-Wextra",
-            "-fPIC",
-            "-fno-stack-protector",
-            "-o",
-        ])
+        .args(&cc_flags)
+        .arg("-o")
         .arg(format!("{}/payload.o", out_dir))
         .arg("src/payload.c")
         .status_exit_ok()?;
@@ -123,8 +127,9 @@ fn build_payload(out_dir: &str) -> Result<()> {
 
 fn main() -> Result<()> {
     let out_dir = env::var("OUT_DIR")?;
+    let debug = env::var("DEBUG")? == "true";
 
-    build_payload(&out_dir)?;
+    build_payload(&out_dir, debug)?;
     generate_payload_consts(&out_dir)?;
 
     cargo_emit::rerun_if_changed!("src/payload.c");

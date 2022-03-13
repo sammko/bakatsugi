@@ -108,6 +108,13 @@ void payload_main(char *cookie) {
   }
   path[i + 14] = '\0';
 
+#ifdef DBG
+  #define STR1 "dlopen: "
+  my_syscall(SYS_write, 2, STR1, sizeof(STR1)-1);
+  my_syscall(SYS_write, 2, path, i+14);
+  my_syscall(SYS_write, 2, "\n", 1);
+#endif
+
   my_dlopen(path, RTLD_LAZY);
   my_syscall(SYS_close, fd);
 }
