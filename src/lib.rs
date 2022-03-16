@@ -4,6 +4,7 @@
 #![feature(unix_socket_ancillary_data)]
 
 mod inspection;
+mod unwind;
 
 use std::{
     ffi::{c_void, CStr},
@@ -236,6 +237,17 @@ pub fn do_inject(
             "Unexpected WaitStatus after ptrace::interrupt: {:?}",
             waitstatus
         );
+    }
+
+    match unwind::unwind_ptrace(pid) {
+        Ok(frames) => {
+            for frame in &frames {
+                println!("{}", frame);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to unwind: {}", e);
+        }
     }
 
     let saved_regs = ptrace::getregs(pid).context("ptrace::getregs failed")?;
