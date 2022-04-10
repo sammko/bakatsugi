@@ -14,6 +14,7 @@ regex = "1.5.4"
 ctor = "0.1.21"
 rand = "0.8.4"
 libloading = "0.7"
+thiserror = "1.0.30"
 
 [lib]
 crate-type = ["cdylib"]

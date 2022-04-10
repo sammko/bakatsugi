@@ -7,12 +7,18 @@ use bincode::{
 };
 
 #[derive(PartialEq, Eq, Encode, Decode, Debug)]
+pub enum TrampolineKind {
+    Indirect5,
+    Absolute12,
+}
+
+#[derive(PartialEq, Eq, Encode, Decode, Debug)]
 pub enum MessageItoT {
     Ping(u64),
     OpenDSO(i32, PathBuf),
     RecvDSO(i32, bool),
     PatchLib(String, i32, String),
-    PatchOwn(String, i32, String),
+    PatchOwn(String, i32, String, TrampolineKind),
     RecvDebugElf,
     Quit,
 }

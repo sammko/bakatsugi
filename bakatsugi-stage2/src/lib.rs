@@ -3,10 +3,13 @@
 #![feature(let_else)]
 #![feature(unix_socket_ancillary_data)]
 
+mod trampoline;
+
 use bakatsugi_payload::{PAYLOAD_MAGIC, PAYLOAD_OFFSET_COOKIE, PAYLOAD_OFFSET_FLAGV};
 use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
 use core::slice;
 use libloading::{Library, Symbol};
+use proc_maps::MapRange;
 use std::{
     arch::asm,
     collections::HashMap,
@@ -32,6 +35,8 @@ use nix::{
     unistd::{close, getpid},
 };
 
+use crate::trampoline::{make_large_trampoline, TrampolineAllocator};
+
 #[ctor]
 fn _init() {
     if cfg!(test) {
@@ -44,10 +49,7 @@ fn _init() {
     }
 }
 
-fn get_stage1_vma() -> Result<usize> {
-    let pid = getpid();
-    let maps = proc_maps::get_process_maps(pid.as_raw())?;
-
+fn get_stage1_vma(maps: &[MapRange]) -> Result<usize> {
     let rsp: u64;
     unsafe {
         asm!("mov {}, rsp", out(reg) rsp);
@@ -152,7 +154,17 @@ fn patch_reloc(name: &str, fake_fun: usize) -> Result<()> {
     Ok(())
 }
 
-fn patch_own_fn(name: &str, replacement_fn: usize, debug_elf: &str) -> Result<()> {
+enum PatchOwnStrategy<'a> {
+    LargeTrampoline,
+    SmallTrampoline(&'a [MapRange], &'a mut Option<TrampolineAllocator>),
+}
+
+fn patch_own_fn(
+    strategy: PatchOwnStrategy,
+    name: &str,
+    replacement_fn: usize,
+    debug_elf: &str,
+) -> Result<()> {
     let data = fs::read(debug_elf)?;
     let elf = Elf::parse(&data)?;
 
@@ -169,8 +181,21 @@ fn patch_own_fn(name: &str, replacement_fn: usize, debug_elf: &str) -> Result<()
     eprintln!("target at: {:x}", actual_target);
     eprintln!("replacement at: {:x}", replacement_fn);
 
-    let mut trampoline = b"\x48\xb8\x00\x00\x00\x00\x00\x00\x00\x10\xff\xe0".to_vec();
-    trampoline[2..10].copy_from_slice(&replacement_fn.to_le_bytes());
+    let trampoline = match strategy {
+        PatchOwnStrategy::LargeTrampoline => make_large_trampoline(replacement_fn as u64),
+        PatchOwnStrategy::SmallTrampoline(maps, alloc) => {
+            if alloc.is_none() {
+                alloc.replace(TrampolineAllocator::new(get_closest_free_page(
+                    maps,
+                    actual_target as usize,
+                ))?);
+            }
+            alloc
+                .as_mut()
+                .unwrap()
+                .write_next_trampoline(actual_target, replacement_fn as u64)?
+        }
+    };
 
     eprintln!("trampoline: {:x?}", trampoline);
 
@@ -187,6 +212,43 @@ fn patch_own_fn(name: &str, replacement_fn: usize, debug_elf: &str) -> Result<()
     }
 
     Ok(())
+}
+
+fn get_closest_free_page(maps: &[MapRange], target: usize) -> usize {
+    //find range containing target
+    match maps
+        .iter()
+        .position(|r| r.start() <= target && r.start() + r.size() > target)
+    {
+        None => target & 0xfffffffffffff000,
+        Some(i) => {
+            let mut candidate_right = maps[maps.len() - 1].start() + maps[maps.len() - 1].size();
+            for j in i..maps.len() - 1 {
+                if maps[j].start() + maps[j].size() == maps[j + 1].start() {
+                    continue;
+                } else {
+                    candidate_right = maps[j].start() + maps[j].size();
+                    break;
+                }
+            }
+
+            let mut candidate_left = maps[0].start() - 4096;
+            for j in (1..i + 1).rev() {
+                if maps[j - 1].start() + maps[j - 1].size() == maps[j].start() {
+                    continue;
+                } else {
+                    candidate_left = maps[j].start() - 4096;
+                    break;
+                }
+            }
+
+            if candidate_right - target < target - candidate_left {
+                candidate_right
+            } else {
+                candidate_left
+            }
+        }
+    }
 }
 
 fn receive_fd(sock: &UnixStream) -> Result<i32> {
@@ -216,7 +278,10 @@ fn receive_fd(sock: &UnixStream) -> Result<i32> {
 }
 
 fn init() -> Result<()> {
-    let stage1_vma = get_stage1_vma()?;
+    let pid = getpid();
+    let mut maps = proc_maps::get_process_maps(pid.as_raw())?;
+    maps.sort_by_key(|m| m.start());
+    let stage1_vma = get_stage1_vma(&maps)?;
     let data = unsafe { get_payload_data(stage1_vma)? };
 
     println!("{:?}", data);
@@ -226,6 +291,8 @@ fn init() -> Result<()> {
 
     let mut dso_map = HashMap::new();
     let mut debug_elf_path: String = "/proc/self/exe".to_string();
+
+    let mut trampoline_allocator: Option<TrampolineAllocator> = None;
 
     loop {
         let msg_in = MessageItoT::recv(&mut sock)?;
@@ -258,11 +325,22 @@ fn init() -> Result<()> {
                 patch_reloc(&fun, unsafe { fptr.into_raw() }.into_raw() as usize)?;
                 MessageTtoI::Ok.send(&mut sock)?;
             }
-            MessageItoT::PatchOwn(fun, id, replacement) => {
+            MessageItoT::PatchOwn(fun, id, replacement, kind) => {
                 let Some(lib) = dso_map.get(&id) else { bail! ("Got bad lib id from injector") };
                 let fptr: Symbol<*mut c_void> = unsafe { lib.get(replacement.as_bytes()) }
                     .context("Failed to lookup symbol")?;
+
+                let strategy = match kind {
+                    bakatsugi_protocol::TrampolineKind::Indirect5 => {
+                        PatchOwnStrategy::SmallTrampoline(&maps, &mut trampoline_allocator)
+                    }
+                    bakatsugi_protocol::TrampolineKind::Absolute12 => {
+                        PatchOwnStrategy::LargeTrampoline
+                    }
+                };
+
                 patch_own_fn(
+                    strategy,
                     &fun,
                     unsafe { fptr.into_raw() }.into_raw() as usize,
                     &debug_elf_path,

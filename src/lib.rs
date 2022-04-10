@@ -22,7 +22,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use bakatsugi_payload::generate_payload;
-use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net};
+use bakatsugi_protocol::{MessageItoT, MessageTtoI, Net, TrampolineKind};
 use goblin::elf::Elf;
 use nix::{
     libc::{
@@ -194,9 +194,12 @@ fn handle_stage2(
     for patch in patches {
         println!("Patch: {:?}", patch);
         match patch {
-            PatchSpec::Own { old, new } => {
-                MessageItoT::PatchOwn(old.to_string(), 1, new.to_string())
-            }
+            PatchSpec::Own { old, new } => MessageItoT::PatchOwn(
+                old.to_string(),
+                1,
+                new.to_string(),
+                TrampolineKind::Indirect5,
+            ),
             PatchSpec::Lib { old, new } => {
                 MessageItoT::PatchLib(old.to_string(), 1, new.to_string())
             }
