@@ -3,7 +3,7 @@
 #![feature(unix_socket_abstract)]
 #![feature(unix_socket_ancillary_data)]
 
-mod inspection;
+pub mod inspection;
 
 use std::{
     ffi::{c_void, CStr},

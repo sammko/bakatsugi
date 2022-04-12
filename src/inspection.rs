@@ -1,4 +1,8 @@
-use std::{fs, io::ErrorKind, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::{ErrorKind, Read},
+    path::PathBuf,
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use goblin::{elf::Elf, elf64::program_header::PT_LOAD};
@@ -88,6 +92,61 @@ pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
         }
     }
     bail!("Could not find dlopen");
+}
+
+fn load_target_exe(pid: Pid) -> Result<Vec<u8>> {
+    let mut buf = vec![];
+    File::open(format!("/proc/{}/exe", pid.as_raw()))?.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+#[derive(Debug)]
+pub struct SymOwnFunction {
+    name: String,
+}
+
+impl SymOwnFunction {
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
+pub fn get_symbols_own(pid: Pid, keep_crt: bool) -> Result<Vec<SymOwnFunction>> {
+    let exe = load_target_exe(pid)?;
+    let elf = Elf::parse(&exe)?;
+
+    fn is_crt(s: &SymOwnFunction) -> bool {
+        static KNOWN_CRT: &[&str] = &[
+            "deregister_tm_clones",
+            "register_tm_clones",
+            "__do_global_dtors_aux",
+            "frame_dummy",
+            "_fini",
+            "_start",
+            "_init",
+        ];
+        KNOWN_CRT.contains(&&s.name[..])
+    }
+
+    let symbols = elf
+        .syms
+        .iter()
+        .filter(|s| s.is_function() && !s.is_import())
+        .map(|s| {
+            elf.strtab
+                .get_at(s.st_name)
+                .map(|name| SymOwnFunction {
+                    name: name.to_string(),
+                })
+                .context("Symbol with invalid st_name")
+        })
+        .filter(|re| match re {
+            Ok(s) => keep_crt || !is_crt(s),
+            Err(_) => true,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(symbols)
 }
 
 #[cfg(test)]

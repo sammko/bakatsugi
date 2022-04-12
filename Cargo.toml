@@ -2,6 +2,15 @@
 name = "bakatsugi"
 version = "0.1.0"
 edition = "2021"
+default-run = "bakatsugi"
+
+[[bin]]
+name = "bakatsugi"
+path = "src/main.rs"
+
+[[bin]]
+name = "bakals"
+path = "src/bakals.rs"
 
 [workspace]
 members = [
