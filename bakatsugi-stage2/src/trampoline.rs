@@ -22,7 +22,7 @@ pub struct TrampolineAllocator {
 const PAGE_SIZE: usize = 4096;
 
 pub fn make_large_trampoline(target: u64) -> Vec<u8> {
-    let mut trampoline = b"\x48\xb8\x00\x00\x00\x00\x00\x00\x00\x10\xff\xe0".to_vec();
+    let mut trampoline = b"\x49\xbb\x00\x00\x00\x00\x00\x00\x00\x10\x41\xff\xe3".to_vec();
     trampoline[2..10].copy_from_slice(&target.to_le_bytes());
     trampoline
 }
