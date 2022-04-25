@@ -284,7 +284,7 @@ fn init() -> Result<()> {
     let stage1_vma = get_stage1_vma(&maps)?;
     let data = unsafe { get_payload_data(stage1_vma)? };
 
-    println!("{:?}", data);
+    eprintln!("{:?}", data);
 
     let addr = SocketAddr::from_abstract_namespace(&data.cookie)?;
     let mut sock = UnixStream::connect_addr(&addr)?;
