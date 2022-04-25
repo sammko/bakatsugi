@@ -5,7 +5,13 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use goblin::{elf::Elf, elf64::program_header::PT_LOAD};
+use goblin::{
+    elf::Elf,
+    elf64::{
+        program_header::PT_LOAD,
+        reloc::{R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT},
+    },
+};
 use nix::unistd::Pid;
 use proc_maps::MapRange;
 use regex::Regex;
@@ -169,7 +175,7 @@ pub fn get_symbols_lib(pid: Pid) -> Result<Vec<SymLibFunction>> {
         .dynrelas
         .iter()
         .chain(elf.pltrelocs.iter())
-        .filter(|r| r.r_sym != 0)
+        .filter(|r| r.r_sym != 0 && matches!(r.r_type, R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT))
         .map(|r| {
             elf.dynsyms
                 .get(r.r_sym)
