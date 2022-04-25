@@ -111,6 +111,18 @@ impl SymOwnFunction {
     }
 }
 
+#[derive(Debug)]
+pub struct SymLibFunction {
+    name: String,
+    //lib: String,
+}
+
+impl SymLibFunction {
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+}
+
 pub fn get_symbols_own(pid: Pid, keep_crt: bool) -> Result<Vec<SymOwnFunction>> {
     let exe = load_target_exe(pid)?;
     let elf = Elf::parse(&exe)?;
@@ -147,6 +159,35 @@ pub fn get_symbols_own(pid: Pid, keep_crt: bool) -> Result<Vec<SymOwnFunction>> 
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(symbols)
+}
+
+pub fn get_symbols_lib(pid: Pid) -> Result<Vec<SymLibFunction>> {
+    let exe = load_target_exe(pid)?;
+    let elf = Elf::parse(&exe)?;
+
+    let names = elf
+        .dynrelas
+        .iter()
+        .chain(elf.pltrelocs.iter())
+        .filter(|r| r.r_sym != 0)
+        .map(|r| {
+            elf.dynsyms
+                .get(r.r_sym)
+                .context("Relocation with invalid r_sym")
+        })
+        .map(|s| {
+            s.and_then(|s| {
+                elf.dynstrtab
+                    .get_at(s.st_name)
+                    .map(|name| SymLibFunction {
+                        name: name.to_string(),
+                    })
+                    .context("Symbol with invalid st_name")
+            })
+        })
+        .collect::<Result<Vec<SymLibFunction>, _>>()?;
+
+    Ok(names)
 }
 
 #[cfg(test)]
