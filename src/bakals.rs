@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bakatsugi::inspection::{get_symbols_lib, get_symbols_own};
+use bakatsugi::inspection::{get_symbols_lib, get_symbols_own, InspectionTarget};
 use clap::{ArgEnum, Parser};
 use nix::{libc::pid_t, unistd::Pid};
 
@@ -25,12 +25,12 @@ fn main() -> Result<()> {
     let pid = Pid::from_raw(args.pid);
     match args.kind {
         SymbolKind::Own => {
-            for s in get_symbols_own(pid, false)? {
+            for s in get_symbols_own(InspectionTarget::Process(pid), false)? {
                 println!("{}", s.get_name());
             }
         }
         SymbolKind::Lib => {
-            for s in get_symbols_lib(pid)? {
+            for s in get_symbols_lib(InspectionTarget::Process(pid))? {
                 println!("{}", s.get_name());
             }
         }

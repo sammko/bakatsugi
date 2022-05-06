@@ -106,6 +106,11 @@ fn load_target_exe(pid: Pid) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
+pub enum InspectionTarget<'a> {
+    Process(Pid),
+    Elf(&'a [u8]),
+}
+
 #[derive(Debug)]
 pub struct SymOwnFunction {
     name: String,
@@ -129,9 +134,15 @@ impl SymLibFunction {
     }
 }
 
-pub fn get_symbols_own(pid: Pid, keep_crt: bool) -> Result<Vec<SymOwnFunction>> {
-    let exe = load_target_exe(pid)?;
-    let elf = Elf::parse(&exe)?;
+pub fn get_symbols_own(tgt: InspectionTarget, keep_crt: bool) -> Result<Vec<SymOwnFunction>> {
+    let exe;
+    let elf = match tgt {
+        InspectionTarget::Process(pid) => {
+            exe = load_target_exe(pid)?;
+            Elf::parse(&exe).context("Failed to parse target as elf")?
+        }
+        InspectionTarget::Elf(exe) => Elf::parse(exe).context("Failed to parse target as elf")?,
+    };
 
     fn is_crt(s: &SymOwnFunction) -> bool {
         static KNOWN_CRT: &[&str] = &[
@@ -167,9 +178,15 @@ pub fn get_symbols_own(pid: Pid, keep_crt: bool) -> Result<Vec<SymOwnFunction>> 
     Ok(symbols)
 }
 
-pub fn get_symbols_lib(pid: Pid) -> Result<Vec<SymLibFunction>> {
-    let exe = load_target_exe(pid)?;
-    let elf = Elf::parse(&exe)?;
+pub fn get_symbols_lib(tgt: InspectionTarget) -> Result<Vec<SymLibFunction>> {
+    let exe;
+    let elf = match tgt {
+        InspectionTarget::Process(pid) => {
+            exe = load_target_exe(pid)?;
+            Elf::parse(&exe).context("Failed to parse target as elf")?
+        }
+        InspectionTarget::Elf(exe) => Elf::parse(exe).context("Failed to parse target as elf")?,
+    };
 
     let names = elf
         .dynrelas
