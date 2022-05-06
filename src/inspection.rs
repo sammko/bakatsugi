@@ -1,7 +1,7 @@
 use std::{fs, io::ErrorKind, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use goblin::elf::Elf;
+use goblin::{elf::Elf, elf64::program_header::PT_LOAD};
 use nix::unistd::Pid;
 use proc_maps::MapRange;
 use regex::Regex;
@@ -62,6 +62,21 @@ pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
 
     let elf = Elf::parse(&libc).context("Failed to parse libc image as elf")?;
 
+    let exec_phdr = {
+        let mut v = None;
+        for phdr in elf.program_headers {
+            if phdr.p_type == PT_LOAD
+                && phdr.is_executable()
+                && phdr.p_offset as usize == map.offset
+            {
+                v = Some(phdr);
+                break;
+            }
+        }
+        v.context("Could not find matching exec phdr")?
+    };
+    eprintln!("Found matching libc phdr: {:?}", &exec_phdr);
+
     let dynstrtab = elf.dynstrtab;
     for sym in elf.dynsyms.iter() {
         let name = dynstrtab.get_at(sym.st_name);
@@ -69,7 +84,7 @@ pub fn get_dlopen_vmaddr(pid: Pid) -> Result<u64> {
         // libdl is merged in, including normal dlopen. Same signature,
         // don't care which one it is.
         if matches!(name, Some("__libc_dlopen_mode" | "dlopen")) {
-            return Ok(sym.st_value - map.offset as u64 + map.start() as u64);
+            return Ok(sym.st_value - exec_phdr.p_vaddr + map.start() as u64);
         }
     }
     bail!("Could not find dlopen");
