@@ -255,7 +255,7 @@ pub fn do_inject(
     modified_regs.rsi = 4096; // length
     modified_regs.rdx = (PROT_READ | PROT_WRITE | PROT_EXEC) as u64; // prot = RWX
     modified_regs.r10 = (MAP_PRIVATE | MAP_ANONYMOUS) as u64; // flags = MAP_PRIVATE | MAP_ANONYMOUS
-    modified_regs.r8 = 0; // fd
+    modified_regs.r8 = (-1_i32) as u64; // fd
     modified_regs.r9 = 0; // off
 
     ptrace::setregs(pid, modified_regs).context("ptrace::setregs failed")?;
