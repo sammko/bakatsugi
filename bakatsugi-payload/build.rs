@@ -41,7 +41,7 @@ fn generate_payload_consts(out_dir: &str) -> Result<()> {
     let sym_cookie = sym_cookie.context("Symbol cookie missing")?;
     let sym_flagv = sym_flagv.context("Symbol flagv missing")?;
     let sym_magic = sym_magic.context("Symbol magic missing")?;
-    let sym_close_stage2 = sym_close_stage2.context("Symbol magic missing")?;
+    let sym_close_stage2 = sym_close_stage2.context("Symbol close_stage2 missing")?;
 
     let magic_offset = sym_magic.st_value;
     let magic_section = elf
